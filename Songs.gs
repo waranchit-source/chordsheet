@@ -124,6 +124,80 @@ function saveSong(token, data) {
   });
 }
 
+function saveSongs(token, list) {
+  var session = requireSession_(token, 'songs.edit');
+  if (!Array.isArray(list) || !list.length) {
+    throw new Error('IMPORT_EMPTY');
+  }
+  if (list.length > 200) {
+    throw new Error('IMPORT_TOO_MANY');
+  }
+  var clean = list.map(function (data) {
+    var title = String((data && data.title) || '').trim();
+    var content = String((data && data.content) || '').replace(/\r\n/g, '\n');
+    if (!title) {
+      throw new Error('TITLE_REQUIRED');
+    }
+    if (!content.trim()) {
+      throw new Error('CONTENT_REQUIRED');
+    }
+    if (content.length > 45000) {
+      throw new Error('CONTENT_TOO_LONG');
+    }
+    return {
+      title: title.substring(0, 200),
+      artist: String(data.artist || '').trim(),
+      originalKey: String(data.originalKey || '').trim(),
+      content: content,
+      layout: ['auto', 'half', 'full'].indexOf(data.defaultLayout) >= 0 ? data.defaultLayout : 'auto',
+      tags: String(data.tags || '').trim(),
+      allowDuplicate: data.allowDuplicate === true
+    };
+  });
+  return withLock_(function () {
+    var titles = {};
+    readTable_(SHEETS.SONGS).forEach(function (r) {
+      if (!isDeleted_(r.Deleted)) {
+        titles[String(r.Title).trim()] = true;
+      }
+    });
+    var now = new Date();
+    var ids = {};
+    var skipped = [];
+    var records = [];
+    clean.forEach(function (d) {
+      if (titles[d.title] && !d.allowDuplicate) {
+        skipped.push(d.title);
+        return;
+      }
+      var id = newId_('S');
+      while (ids[id]) {
+        id = newId_('S');
+      }
+      ids[id] = true;
+      records.push({
+        SongId: id,
+        Title: d.title,
+        Artist: d.artist,
+        OriginalKey: d.originalKey,
+        Content: d.content,
+        DefaultLayout: d.layout,
+        Tags: d.tags,
+        CreatedBy: session.displayName,
+        CreatedAt: now,
+        UpdatedBy: session.displayName,
+        UpdatedAt: now,
+        Deleted: false
+      });
+    });
+    appendRows_(SHEETS.SONGS, records);
+    return {
+      saved: records.map(function (r) { return songToClient_(r, true); }),
+      skipped: skipped
+    };
+  });
+}
+
 function deleteSong(token, songId) {
   var session = requireSession_(token, 'songs.delete');
   return withLock_(function () {

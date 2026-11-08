@@ -19,6 +19,9 @@
   var modalDismiss = null;
   var lastFocus = null;
   var revealObserver = null;
+  var importMemos = {};
+  var importSeq = 0;
+  var importSaveTimer = null;
 
   var state = {
     token: null,
@@ -52,7 +55,10 @@
     authDraft: {},
     sidebarOpen: document.documentElement.classList.contains('sb-open'),
     statsKey: '',
-    reveal: false
+    reveal: false,
+    importDraft: null,
+    importBusy: null,
+    importSaving: false
   };
   var narrowMq = window.matchMedia ? window.matchMedia('(max-width: 1023px)') : null;
 
@@ -427,7 +433,7 @@
     return t('role.custom');
   }
 
-  var VIEW_PERM = { library: 'songs.view', song: 'songs.view', editor: 'songs.edit', builder: 'setlist.create', history: 'history.view', stats: 'stats.view', users: 'users.manage', account: '' };
+  var VIEW_PERM = { library: 'songs.view', song: 'songs.view', editor: 'songs.edit', builder: 'setlist.create', history: 'history.view', stats: 'stats.view', users: 'users.manage', import: 'songs.edit', account: '' };
 
   function viewAllowed(view) {
     var need = VIEW_PERM[view];
@@ -598,6 +604,8 @@
     state.setlistsLoaded = false;
     state.stats = null;
     state.statsKey = '';
+    state.importDraft = null;
+    state.importBusy = null;
     saveToken(null);
     store('cs_cache', null);
     state.authView = 'login';
@@ -620,7 +628,7 @@
   }
 
   function isActiveNav(id) {
-    return state.view === id || (id === 'library' && (state.view === 'song' || state.view === 'editor'));
+    return state.view === id || (id === 'library' && (state.view === 'song' || state.view === 'editor' || state.view === 'import'));
   }
 
   function navButton(i, idx) {
@@ -665,6 +673,7 @@
     closeDrawerIfNarrow();
     if (view === 'logout') {
       api('logout').catch(function () {});
+      clearImportDraft();
       forceLogout();
       return;
     }
@@ -696,6 +705,7 @@
     if (v === 'library') { renderLibrary(); }
     else if (v === 'song') { renderSong(); }
     else if (v === 'editor') { renderEditor(); }
+    else if (v === 'import') { renderImport(); }
     else if (v === 'builder') { renderBuilder(); }
     else if (v === 'history') { renderHistory(); }
     else if (v === 'stats') { renderStats(); }
@@ -1041,6 +1051,7 @@
   }
 
   function afterLogin() {
+    state.importDraft = null;
     var saved = load('cs_builder');
     state.builder = saved && saved.items ? saved : newBuilder();
     if (!state.builder.leader) {
@@ -1106,8 +1117,8 @@
     $('view').innerHTML =
       '<div class="card">' +
       '<div class="row"><div class="grow"><h1 class="heading-5">' + esc(t('library.title')) + '</h1><div class="caption-2 muted" id="libCount"></div></div>' +
-      (can('songs.edit') ? '<button type="button" class="btn primary" id="btnNewSong">' + btnLabel('plus', t('library.add')) + '</button>' : '') +
-      '</div><div class="sp-16"></div>' +
+      (can('songs.edit') ? '<button type="button" class="btn" id="btnImport">' + btnLabel('file-arrow-up', t('import.button')) + '</button><button type="button" class="btn primary" id="btnNewSong">' + btnLabel('plus', t('library.add')) + '</button>' : '') +
+      '</div>' + importPendingNote() + '<div class="sp-16"></div>' +
       '<div class="row"><div class="search grow">' + ic('magnifying-glass') + '<input type="search" id="libSearch" aria-label="' + esc(t('library.search')) + '" placeholder="' + esc(t('library.search')) + '" value="' + esc(state.search) + '"></div>' +
       '<select id="libSort" class="auto" aria-label="' + esc(t('library.sortLabel')) + '">' +
       '<option value="title">' + esc(t('library.sortTitle')) + '</option><option value="uses">' + esc(t('library.sortUses')) + '</option><option value="last">' + esc(t('library.sortLast')) + '</option><option value="updated">' + esc(t('library.sortUpdated')) + '</option>' +
@@ -1119,7 +1130,24 @@
     if ($('btnNewSong')) {
       $('btnNewSong').onclick = function () { openEditor(null); };
     }
+    if ($('btnImport')) {
+      $('btnImport').onclick = pickImportFiles;
+    }
+    if ($('btnImportContinue')) {
+      $('btnImportContinue').onclick = function () { show('import'); };
+    }
     renderLibraryList();
+  }
+
+  function importPendingNote() {
+    if (!can('songs.edit')) {
+      return '';
+    }
+    var n = importDraft().songs.length;
+    if (!n) {
+      return '';
+    }
+    return '<div class="sp-12"></div><div class="note-line caption-2 imp-pending">' + ic('file-arrow-up') + '<span class="grow">' + esc(tCount('import.pending', n)) + '</span><button type="button" class="btn sm" id="btnImportContinue">' + esc(t('import.continue')) + '</button></div>';
   }
 
   function sortedSongs() {
@@ -1146,9 +1174,12 @@
     $('libCount').textContent = tCount('library.count', state.songs.length) + (state.search ? t('library.found', { n: list.length }) : '');
     if (!state.songs.length) {
       el.innerHTML = emptyState('music-notes', t('library.emptyTitle'), can('songs.edit') ? t('library.emptyText') : t('library.emptyTextViewer'),
-        can('songs.edit') ? '<button type="button" class="btn primary" id="emptyAdd">' + btnLabel('plus', t('library.add')) + '</button>' : '');
+        can('songs.edit') ? '<div class="row center"><button type="button" class="btn" id="emptyImport">' + btnLabel('file-arrow-up', t('import.button')) + '</button><button type="button" class="btn primary" id="emptyAdd">' + btnLabel('plus', t('library.add')) + '</button></div>' : '');
       if ($('emptyAdd')) {
         $('emptyAdd').onclick = function () { openEditor(null); };
+      }
+      if ($('emptyImport')) {
+        $('emptyImport').onclick = pickImportFiles;
       }
       return;
     }
@@ -1303,6 +1334,7 @@
     var helps = ['editor.help1', 'editor.help2', 'editor.help3', 'editor.help4', 'editor.help5', 'editor.help6', 'editor.help7'];
     $('view').innerHTML =
       '<div class="card"><div class="row"><button type="button" class="btn sm ghost" id="edBack">' + btnLabel('arrow-left', t('common.cancel')) + '</button><div class="grow"><h1 class="heading-5">' + esc(s.id ? t('editor.titleEdit') : t('editor.titleNew')) + '</h1></div>' +
+      (s.id ? '' : '<button type="button" class="btn" id="edImport">' + btnLabel('file-arrow-up', t('import.fromFile')) + '</button>') +
       '<button type="button" class="btn primary" id="edSave">' + btnLabel('check', t('common.save')) + '</button></div></div>' +
       '<div class="card"><div class="grid2">' +
       field('edTitle', t('editor.fTitle') + ' *', '<input type="text" id="edTitle" value="' + esc(s.title) + '">') +
@@ -1369,6 +1401,19 @@
       }
     };
     $('edSave').onclick = function () { saveEditor(false); };
+    if ($('edImport')) {
+      $('edImport').onclick = function () {
+        if (!$('edTitle').value.trim() && !$('edContent').value.trim()) {
+          pickImportFiles();
+          return;
+        }
+        confirmBox(t('import.leaveEditor'), t('import.pick')).then(function (ok) {
+          if (ok) {
+            pickImportFiles();
+          }
+        });
+      };
+    }
   }
 
   function saveEditor(allowDuplicate) {
@@ -1953,6 +1998,565 @@
     } else {
       go2();
     }
+  }
+
+  function emptyImportDraft() {
+    return { user: state.user ? state.user.username : '', songs: [], errors: [] };
+  }
+
+  function importDraft() {
+    if (!state.importDraft) {
+      var saved = load('cs_import');
+      state.importDraft = saved && state.user && saved.user === state.user.username && Array.isArray(saved.songs) ? saved : emptyImportDraft();
+      if (!Array.isArray(state.importDraft.errors)) {
+        state.importDraft.errors = [];
+      }
+    }
+    return state.importDraft;
+  }
+
+  function saveImportDraft() {
+    clearTimeout(importSaveTimer);
+    var d = importDraft();
+    if (!d.songs.length && !d.errors.length) {
+      store('cs_import', null);
+      return;
+    }
+    store('cs_import', d);
+  }
+
+  function saveImportDraftSoon() {
+    clearTimeout(importSaveTimer);
+    importSaveTimer = setTimeout(saveImportDraft, 400);
+  }
+
+  function clearImportDraft() {
+    clearTimeout(importSaveTimer);
+    state.importDraft = emptyImportDraft();
+    importMemos = {};
+    store('cs_import', null);
+  }
+
+  function normTitle(t) {
+    return String(t || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  }
+
+  function libraryTitles() {
+    var map = {};
+    state.songs.forEach(function (s) { map[normTitle(s.title)] = true; });
+    return map;
+  }
+
+  function importKey() {
+    importSeq++;
+    return 'i' + Date.now().toString(36) + importSeq;
+  }
+
+  function findImport(k) {
+    var list = importDraft().songs;
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].k === k) {
+        return list[i];
+      }
+    }
+    return null;
+  }
+
+  function pickImportFiles() {
+    var input = $('importFile');
+    if (!input) {
+      input = document.createElement('input');
+      input.type = 'file';
+      input.id = 'importFile';
+      input.multiple = true;
+      input.accept = '.pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      input.className = 'sr-only';
+      input.tabIndex = -1;
+      input.setAttribute('aria-hidden', 'true');
+      document.body.appendChild(input);
+      input.onchange = function () {
+        var files = Array.prototype.slice.call(input.files || []);
+        input.value = '';
+        if (files.length) {
+          startImport(files);
+        }
+      };
+    }
+    input.click();
+  }
+
+  function importProgressText() {
+    var b = state.importBusy;
+    if (!b) {
+      return '';
+    }
+    return b.n > 1 ? t('import.readingCount', { i: b.i + 1, n: b.n, name: b.name }) : t('import.reading', { name: b.name });
+  }
+
+  function startImport(files) {
+    if (!window.Importer) {
+      toast(t('err.IMPORT_LIB'), true);
+      return;
+    }
+    importDraft();
+    state.importBusy = { i: 0, n: files.length, name: files[0].name };
+    show('import');
+    window.Importer.readFiles(files, function (i, n, name) {
+      state.importBusy = { i: i, n: n, name: name };
+      if ($('impProgress')) {
+        $('impProgress').textContent = importProgressText();
+      }
+    }).then(function (res) {
+      state.importBusy = null;
+      var lib = libraryTitles();
+      var d = importDraft();
+      var added = res.songs.map(function (s) {
+        return {
+          k: importKey(),
+          title: s.title || '',
+          key: s.key || '',
+          artist: s.artist || '',
+          content: s.content,
+          file: s.file || '',
+          page: s.page || 0,
+          lost: s.lost || 0,
+          include: !!(s.hasChords && !lib[normTitle(s.title)])
+        };
+      });
+      d.songs = d.songs.concat(added);
+      d.errors = res.errors;
+      saveImportDraft();
+      if (state.view === 'import') {
+        renderImport();
+        if (added.length) {
+          var first = document.querySelector('.imp-card[data-k="' + added[0].k + '"]');
+          if (first && d.songs.length > added.length) {
+            first.scrollIntoView({ block: 'start' });
+          }
+        }
+      }
+      if (added.length) {
+        toast(tCount('import.found', added.length));
+      } else {
+        toast(res.errors.length ? t('import.fileErrors') : t('import.foundNone'), true);
+      }
+    }).catch(function (e) {
+      state.importBusy = null;
+      if (state.view === 'import') {
+        renderImport();
+      }
+      fail(e);
+    });
+  }
+
+  function importFlags(s, lib, counts) {
+    var f = [];
+    var n = normTitle(s.title);
+    if (!n) {
+      f.push(['warn', 'text-aa', t('import.flagNoTitle')]);
+    } else if (lib[n]) {
+      f.push(['', 'copy', t('import.flagDup')]);
+    } else if (counts[n] > 1) {
+      f.push(['', 'copy', t('import.flagDupImport')]);
+    }
+    if (!window.Importer.hasChords(s.content)) {
+      f.push(['gray', 'music-note-simple', t('import.flagNoChords')]);
+    }
+    if (s.lost) {
+      f.push(['warn', 'warning', t('import.flagLost')]);
+    }
+    return f;
+  }
+
+  function importCard(s, i) {
+    var ed = C.toEditable(s.content);
+    importMemos[s.k] = ed.memo;
+    var rows = Math.min(24, Math.max(6, ed.text.split('\n').length + 1));
+    var src = s.file ? (s.page ? t('import.source', { file: s.file, page: s.page }) : s.file) : '';
+    return '<article class="card imp-card' + (s.include ? '' : ' is-off') + '" data-k="' + esc(s.k) + '">' +
+      '<div class="imp-head">' +
+      '<label class="imp-include"><input type="checkbox" data-f="include"' + (s.include ? ' checked' : '') + ' aria-label="' + esc(t('import.include', { n: i + 1 })) + '"><span class="imp-num" aria-hidden="true">' + (i + 1) + '</span></label>' +
+      '<div class="imp-fields">' +
+      field('impT_' + s.k, t('import.fTitle'), '<input type="text" id="impT_' + s.k + '" data-f="title" value="' + esc(s.title) + '" placeholder="' + esc(t('import.titlePlaceholder')) + '">') +
+      field('impK_' + s.k, t('import.fKey'), '<input type="text" id="impK_' + s.k + '" data-f="key" list="impKeys" value="' + esc(s.key) + '" placeholder="' + esc(t('editor.keyPlaceholder')) + '" autocapitalize="none" spellcheck="false">') +
+      '</div></div>' +
+      '<div class="imp-meta">' + (src ? '<span class="caption-2 muted imp-src">' + ic(/\.pdf$/i.test(s.file) ? 'file-pdf' : 'file-doc') + '<span>' + esc(src) + '</span></span>' : '') + '<span class="imp-flags" data-flags></span></div>' +
+      '<div class="imp-body">' +
+      '<div class="imp-edit"><label class="f" for="impC_' + s.k + '">' + esc(t('import.content')) + '</label>' +
+      '<textarea class="code" id="impC_' + s.k + '" data-f="text" rows="' + rows + '" spellcheck="false">' + esc(ed.text) + '</textarea>' +
+      '<p class="field-error" id="impC_' + s.k + 'Err" hidden></p></div>' +
+      '<div class="imp-preview"><div class="f" aria-hidden="true">' + esc(t('import.preview')) + '</div><div class="sheet" data-preview>' + (s.content.trim() ? C.renderHtml(s.content) : '<p class="caption-2 muted">' + esc(t('editor.previewEmpty')) + '</p>') + '</div></div>' +
+      '</div>' +
+      '<div class="imp-actions">' +
+      '<button type="button" class="btn sm imp-toggle" data-act="preview" aria-expanded="false">' + btnLabel('eye', t('builder.preview')) + '</button>' +
+      '<button type="button" class="btn sm" data-act="split">' + btnLabel('scissors', t('import.split')) + '</button>' +
+      (i > 0 ? '<button type="button" class="btn sm" data-act="merge">' + btnLabel('arrow-line-up', t('import.merge')) + '</button>' : '') +
+      '<button type="button" class="btn sm danger" data-act="remove">' + btnLabel('trash', t('common.remove')) + '</button>' +
+      '</div></article>';
+  }
+
+  function renderImport() {
+    var d = importDraft();
+    var busy = !!state.importBusy;
+    var head = '<div class="card"><div class="row"><div class="grow"><h1 class="heading-5">' + esc(t('import.title')) + '</h1><div class="caption-2 muted">' + esc(t('import.subtitle')) + '</div></div>' +
+      (busy ? '' : '<button type="button" class="btn" id="impAdd">' + btnLabel('file-arrow-up', d.songs.length ? t('import.addFiles') : t('import.pick')) + '</button>' +
+        (d.songs.length || d.errors.length ? '<button type="button" class="btn danger" id="impDiscard">' + btnLabel('trash', t('import.discard')) + '</button>' : '')) +
+      '</div><div id="impSummary"></div></div>';
+    if (busy) {
+      $('view').innerHTML = head + '<div class="card"><div class="progress-note" role="status">' + ic('hourglass-medium') + '<span class="body-6" id="impProgress">' + esc(importProgressText()) + '</span></div><div class="sp-16"></div>' + skeleton(5) + '</div>';
+      return;
+    }
+    var errs = d.errors.length ? '<div class="card imp-errors" role="alert"><h2 class="title-3">' + ic('warning-circle') + '<span>' + esc(t('import.fileErrors')) + '</span></h2><ul>' + d.errors.map(function (e) {
+      return '<li><span class="title-4">' + esc(e.file) + '</span><span class="caption-2 muted">' + esc(errMsg(new Error(e.code))) + '</span></li>';
+    }).join('') + '</ul></div>' : '';
+    if (!d.songs.length) {
+      $('view').innerHTML = head + errs + '<div class="card">' + emptyState('file-arrow-up', t('import.emptyTitle'), t('import.emptyText'), '<button type="button" class="btn primary" id="impPickEmpty">' + btnLabel('file-arrow-up', t('import.pick')) + '</button>') +
+        '<p class="caption-2 muted imp-hint">' + esc(t('import.hint')) + '</p></div>';
+    } else {
+      $('view').innerHTML = head + errs +
+        '<datalist id="impKeys">' + KEY_OPTIONS.map(function (k) { return '<option value="' + k + '">'; }).join('') + '</datalist>' +
+        '<div id="impList">' + d.songs.map(importCard).join('') + '</div>' +
+        '<div class="card imp-savebar"><p class="body-6 grow" id="impSaveText" aria-live="polite"></p><button type="button" class="btn primary" id="impSave"></button></div>';
+      bindImportCards();
+      $('impSave').onclick = saveImport;
+    }
+    if ($('impAdd')) {
+      $('impAdd').onclick = pickImportFiles;
+    }
+    if ($('impPickEmpty')) {
+      $('impPickEmpty').onclick = pickImportFiles;
+    }
+    if ($('impDiscard')) {
+      $('impDiscard').onclick = function () {
+        confirmBox(t('import.discardConfirm'), t('import.discard'), true).then(function (ok) {
+          if (!ok) {
+            return;
+          }
+          clearImportDraft();
+          toast(t('import.discarded'));
+          go('library');
+        });
+      };
+    }
+    updateImportSummary();
+  }
+
+  function rerenderImportList(focusK, focusField) {
+    var d = importDraft();
+    if (!d.songs.length || !$('impList')) {
+      renderImport();
+      return;
+    }
+    importMemos = {};
+    $('impList').innerHTML = d.songs.map(importCard).join('');
+    bindImportCards();
+    updateImportSummary();
+    if (focusK) {
+      var el = $((focusField || 'impT_') + focusK);
+      if (el) {
+        el.focus({ preventScroll: true });
+        var card = el.closest('.imp-card');
+        if (card) {
+          card.scrollIntoView({ block: 'nearest' });
+        }
+      }
+    }
+  }
+
+  function syncImportCard(card) {
+    var s = findImport(card.getAttribute('data-k'));
+    var ta = card.querySelector('[data-f=text]');
+    if (s && ta) {
+      s.content = C.fromEditable(ta.value, importMemos[s.k]);
+    }
+    return s;
+  }
+
+  function syncImportEdits() {
+    if ($('impList')) {
+      each($('impList'), '.imp-card', syncImportCard);
+    }
+  }
+
+  function bindImportCards() {
+    each($('impList'), '.imp-card', function (card) {
+      var k = card.getAttribute('data-k');
+      var s = findImport(k);
+      if (!s) {
+        return;
+      }
+      var ta = card.querySelector('[data-f=text]');
+      var timer = null;
+      card.querySelector('[data-f=include]').onchange = function () {
+        s.include = this.checked;
+        card.classList.toggle('is-off', !s.include);
+        updateImportSummary();
+        saveImportDraftSoon();
+      };
+      card.querySelector('[data-f=title]').oninput = function () {
+        s.title = this.value;
+        setFieldError('impT_' + k, '');
+        updateImportSummary();
+        saveImportDraftSoon();
+      };
+      card.querySelector('[data-f=key]').oninput = function () {
+        s.key = this.value.trim();
+        setFieldError('impK_' + k, '');
+        saveImportDraftSoon();
+      };
+      ta.oninput = function () {
+        clearTimeout(timer);
+        timer = setTimeout(function () {
+          syncImportCard(card);
+          card.querySelector('[data-preview]').innerHTML = s.content.trim() ? C.renderHtml(s.content) : '<p class="caption-2 muted">' + esc(t('editor.previewEmpty')) + '</p>';
+          setFieldError('impC_' + k, '');
+          updateImportSummary();
+          saveImportDraftSoon();
+        }, 200);
+      };
+      each(card, '[data-act]', function (b) {
+        b.onclick = function () { importAction(b.getAttribute('data-act'), s, card, b); };
+      });
+    });
+  }
+
+  function importAction(act, s, card, btn) {
+    var d = importDraft();
+    var idx = d.songs.indexOf(s);
+    if (act === 'preview') {
+      var open = card.classList.toggle('show-preview');
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      btn.innerHTML = btnLabel(open ? 'eye-slash' : 'eye', open ? t('builder.hidePreview') : t('builder.preview'));
+      return;
+    }
+    syncImportEdits();
+    if (act === 'remove') {
+      d.songs.splice(idx, 1);
+      saveImportDraft();
+      var next = d.songs[Math.min(idx, d.songs.length - 1)];
+      rerenderImportList(next ? next.k : null);
+      return;
+    }
+    if (act === 'merge' && idx > 0) {
+      var prev = d.songs[idx - 1];
+      prev.content = prev.content.replace(/\s+$/, '') + '\n\n' + s.content.replace(/^\s+/, '');
+      if (!prev.title.trim() && s.title.trim()) {
+        prev.title = s.title;
+      }
+      prev.key = prev.key || s.key;
+      prev.lost = (prev.lost || 0) + (s.lost || 0);
+      prev.include = prev.include || s.include;
+      d.songs.splice(idx, 1);
+      saveImportDraft();
+      rerenderImportList(prev.k, 'impC_');
+      toast(t('import.merged'));
+      return;
+    }
+    if (act === 'split') {
+      var ta = card.querySelector('[data-f=text]');
+      var text = ta.value;
+      var lineStart = text.lastIndexOf('\n', Math.max(0, ta.selectionStart - 1)) + 1;
+      if (ta.selectionStart === 0 || lineStart <= 0 || !text.substring(0, lineStart).trim() || !text.substring(lineStart).trim()) {
+        toast(t('import.splitHint'), true);
+        ta.focus();
+        return;
+      }
+      var memo = importMemos[s.k];
+      var before = text.substring(0, lineStart).replace(/\s+$/, '');
+      var afterLines = text.substring(lineStart).replace(/^\s*\n/, '').split('\n');
+      var title = '';
+      var firstLine = afterLines[0] || '';
+      if (afterLines.length > 1 && firstLine.trim() && firstLine.trim().length <= 80 && C.parseLine(firstLine).type === 'text' && !/^\s*[A-G][#b]?\S*(\s+[A-G][#b]?\S*)*\s*$/.test(firstLine)) {
+        var parsed = window.Importer.parseTitle(firstLine);
+        if (parsed.title) {
+          title = parsed.title;
+          afterLines.shift();
+        }
+      }
+      s.content = C.fromEditable(before, memo);
+      var rest = C.fromEditable(afterLines.join('\n').replace(/^\s+/, ''), memo);
+      var added = {
+        k: importKey(),
+        title: title,
+        key: window.Importer.guessKey(rest),
+        artist: '',
+        content: rest,
+        file: s.file,
+        page: s.page,
+        lost: 0,
+        include: true
+      };
+      d.songs.splice(idx + 1, 0, added);
+      saveImportDraft();
+      rerenderImportList(added.k);
+      toast(t('import.splitDone'));
+    }
+  }
+
+  function updateImportSummary() {
+    var d = importDraft();
+    var el = $('impSummary');
+    if (!el) {
+      return;
+    }
+    if (!d.songs.length) {
+      el.innerHTML = '';
+      return;
+    }
+    var lib = libraryTitles();
+    var counts = {};
+    d.songs.forEach(function (s) {
+      var n = normTitle(s.title);
+      if (n) {
+        counts[n] = (counts[n] || 0) + 1;
+      }
+    });
+    var sel = 0;
+    var noTitle = 0;
+    var dup = 0;
+    d.songs.forEach(function (s) {
+      if (s.include) {
+        sel++;
+        if (!normTitle(s.title)) {
+          noTitle++;
+        }
+      }
+      if (lib[normTitle(s.title)]) {
+        dup++;
+      }
+      var card = document.querySelector('.imp-card[data-k="' + s.k + '"]');
+      if (card) {
+        card.querySelector('[data-flags]').innerHTML = importFlags(s, lib, counts).map(function (f) {
+          return '<span class="pill' + (f[0] ? ' ' + f[0] : '') + '">' + ic(f[1]) + '<span>' + esc(f[2]) + '</span></span>';
+        }).join('');
+      }
+    });
+    el.innerHTML = '<div class="sp-12"></div><div class="imp-summary">' +
+      '<span class="pill gray">' + ic('files') + '<span>' + esc(tCount('import.sumSongs', d.songs.length)) + '</span></span>' +
+      '<span class="pill ok">' + ic('check') + '<span>' + esc(t('import.sumSelected', { n: sel })) + '</span></span>' +
+      (noTitle ? '<span class="pill warn">' + ic('text-aa') + '<span>' + esc(t('import.sumNoTitle', { n: noTitle })) + '</span></span>' : '') +
+      (dup ? '<span class="pill">' + ic('copy') + '<span>' + esc(t('import.sumDup', { n: dup })) + '</span></span>' : '') +
+      '</div>';
+    if ($('impSave')) {
+      $('impSave').innerHTML = btnLabel('check', tCount('import.save', sel));
+      $('impSave').disabled = !sel || state.importSaving;
+      $('impSaveText').textContent = state.importSaving ? t('import.saving') : (sel < d.songs.length ? t('import.notSelected', { n: d.songs.length - sel }) : t('import.allSelected'));
+    }
+  }
+
+  function saveSongsBulk(list, onProgress) {
+    var saved = [];
+    var size = 100;
+    var bulk = function (start) {
+      if (start >= list.length) {
+        return Promise.resolve(saved);
+      }
+      onProgress(start, list.length);
+      return api('saveSongs', list.slice(start, start + size)).then(function (res) {
+        saved = saved.concat(res && Array.isArray(res.saved) ? res.saved : []);
+        return bulk(start + size);
+      });
+    };
+    var single = function (i) {
+      if (i >= list.length) {
+        return Promise.resolve(saved);
+      }
+      onProgress(i, list.length);
+      return api('saveSong', list[i]).then(function (song) {
+        saved.push(song);
+        return single(i + 1);
+      });
+    };
+    return bulk(0).catch(function (e) {
+      if (e && e.message === 'UNKNOWN_ACTION' && !saved.length) {
+        return single(0);
+      }
+      throw e;
+    }).catch(function (e) {
+      e.saved = saved;
+      throw e;
+    });
+  }
+
+  function saveImport() {
+    var d = importDraft();
+    syncImportEdits();
+    var chosen = d.songs.filter(function (s) { return s.include; });
+    if (!chosen.length) {
+      toast(t('import.noneSelected'), true);
+      return;
+    }
+    var firstBad = null;
+    var badCount = 0;
+    chosen.forEach(function (s) {
+      var bad = null;
+      if (!s.title.trim()) {
+        setFieldError('impT_' + s.k, t('err.TITLE_REQUIRED'));
+        bad = bad || 'impT_';
+      }
+      if (s.key && !C.parseKey(s.key)) {
+        setFieldError('impK_' + s.k, t('err.KEY_FORMAT'));
+        bad = bad || 'impK_';
+      }
+      if (!s.content.trim()) {
+        setFieldError('impC_' + s.k, t('err.CONTENT_REQUIRED'));
+        bad = bad || 'impC_';
+      } else if (s.content.length > 45000) {
+        setFieldError('impC_' + s.k, t('err.CONTENT_TOO_LONG'));
+        bad = bad || 'impC_';
+      }
+      if (bad) {
+        badCount++;
+        if (!firstBad) {
+          firstBad = bad + s.k;
+        }
+      }
+    });
+    if (firstBad) {
+      var el = $(firstBad);
+      if (el) {
+        el.closest('.imp-card').scrollIntoView({ block: 'start' });
+        el.focus({ preventScroll: true });
+      }
+      toast(tCount('import.fixFirst', badCount), true);
+      return;
+    }
+    var payload = chosen.map(function (s) {
+      return { title: s.title.trim(), artist: s.artist || '', originalKey: s.key ? s.key.trim() : '', content: s.content, defaultLayout: 'auto', tags: '', allowDuplicate: true };
+    });
+    var left = d.songs.length - chosen.length;
+    state.importSaving = true;
+    updateImportSummary();
+    saveSongsBulk(payload, function (i, n) {
+      if ($('impSaveText')) {
+        $('impSaveText').textContent = n > 1 ? t('import.savingCount', { i: Math.min(n, i + 1), n: n }) : t('import.saving');
+      }
+    }).then(function (saved) {
+      state.importSaving = false;
+      saved.forEach(upsertSong);
+      clearImportDraft();
+      toast(left ? t('import.savedSkipped', { n: saved.length, m: left }) : tCount('import.saved', saved.length));
+      state.search = '';
+      go('library');
+    }).catch(function (e) {
+      state.importSaving = false;
+      var done = e && e.saved ? e.saved.length : 0;
+      if (done) {
+        e.saved.forEach(upsertSong);
+        var savedSet = chosen.slice(0, done);
+        d.songs = d.songs.filter(function (s) { return savedSet.indexOf(s) < 0; });
+        saveImportDraft();
+        if (state.view === 'import') {
+          renderImport();
+        }
+        toast(t('import.partial', { n: done }) + ' ' + errMsg(e), true);
+        return;
+      }
+      if (state.view === 'import') {
+        updateImportSummary();
+      }
+      fail(e);
+    });
   }
 
   function renderStats() {

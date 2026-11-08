@@ -64,6 +64,7 @@ function apiRoutes_() {
     getSong: { fn: getSong, auth: true },
     getSongs: { fn: getSongs, auth: true },
     saveSong: { fn: saveSong, auth: true },
+    saveSongs: { fn: saveSongs, auth: true },
     deleteSong: { fn: deleteSong, auth: true },
     generateSetlist: { fn: generateSetlist, auth: true },
     listSetlists: { fn: listSetlists, auth: true },

@@ -4,7 +4,7 @@ Project notes for Claude Code. Read this before changing anything.
 
 ## What this is
 
-Worship team "Lyrics & Chords" system (Thai church). Song library with chord transposing, setlist builder that produces A4 PDF / Word files (2 songs per page) downloaded to the user's device, setlist history and usage stats.
+Worship team "Lyrics & Chords" system (Thai church). Song library with chord transposing, Word / PDF import with a review screen, setlist builder that produces A4 PDF / Word files (2 songs per page) downloaded to the user's device, setlist history and usage stats.
 
 - **Frontend**: static site in `docs/`, served by GitHub Pages from branch `main`, folder `/docs`.
   Live URL: https://waranchit-source.github.io/chordsheet/ (repo `waranchit-source/chordsheet`, public because the account plan only serves Pages from public repos; the owner approved this on 2026-11-08).
@@ -64,6 +64,18 @@ Browser (docs/*.js)  --fetch POST text/plain JSON-->  Apps Script doPost (Code.g
   - `tidy()` = `toEditable(fromEditable())`, used by the Tidy up button and on paste into an empty editor.
 - Editor textarea uses Geist Mono so chord above lyric alignment by character count matches what the user sees.
 - Transpose spelling (owner's rule): `#/b auto` always uses `AUTO = C C# D Eb E F F# G G# A Bb B` for chords and the key label. At shift 0 in auto mode the content and key are shown exactly as written. `Use #` / `Use b` force `SHARP` / `FLAT`. The PDF uses the same `prepareForOutput` result, so screen and print match.
+
+### Importing Word / PDF files (docs/importer.js)
+
+- Runs entirely in the browser; files are never uploaded. `window.Importer.readFiles(files, onProgress)` returns `{ songs: [{ title, key, artist, content, file, page, hasChords, lost }], errors: [{ file, code }] }`. Error codes are client side `IMPORT_*` codes translated through `err.*` like server codes.
+- PDF: pdf.js 3.11.174 loaded on demand from cdnjs with SRI (`PDFJS_URL`, `PDFJS_SRI`, cross origin worker works through pdf.js's own blob wrapper). Always pass `isEvalSupported: false` (CVE-2024-4367). `getOperatorList()` runs first so `page.commonObjs` has fonts for bold detection. Text items are split into columns (`findGutter`: least crossed x between 30% and 70% of the text width, validated by lyric lines on both sides), grouped into lines by baseline, blank lines come from baseline gaps (`markGaps`), centered lines from region bounds.
+- DOCX: own zip reader (central directory + `DecompressionStream('deflate-raw')`) and `DOMParser`; styles (`docDefaults`, paragraph and character style chains), `sz`/`szCs` and `b`/`bCs` (Thai uses the complex script values), tabs (`w:tabs`, `defaultTabStop`), `jc` (centered lines use the center as origin), tables (each cell is a region), text boxes (`txbxContent`, skipping `mc:Fallback`), explicit page breaks (new region). `lastRenderedPageBreak` only counts pages.
+- Positions: every character gets an x position (`pushRun`): PDF items are spread over the item width in proportion to canvas `measureText` widths (Sarabun stack), DOCX runs are measured directly in points. A chord only line followed by a lyric line is merged by x (`mergeByX`): nearest non combining, non space character; a chord after a Thai leading vowel position snaps back to the vowel; chords past the line end become trailing ` [G]`.
+- Songs are split by titles (`isTitle`: size at least 1.12 times the body size, or bold / centered when most lyrics are not, after a blank line and followed by song content; or followed by a `Key:` line; ChordPro `{title:}`). When a file has no titles at all, regions (columns, pages, cells) and big gaps (2+ blank lines) split songs. `parseTitle` strips numbering (`1. `) and `(Key G)`; `Key: G` lines set the key; `[Chorus]` becomes `Chorus:`; labelled chord lines become music lines; repeated page headers and page numbers are dropped (PDF).
+- Thai PDF text: Windows and Mac Thai PUA glyphs (U+F700 block, U+F880 block, table from HarfBuzz) are mapped back; decomposed SARA AM is recomposed. Chrome printed PDFs write `\u0000` for stacked tone marks and shifted upper vowels; those cannot be recovered, so they are removed and counted in `lost`, which shows the "Check the Thai spelling" flag in the review screen.
+- Review screen: view `import` (permission `songs.edit`, nav highlights Songs). Draft kept in localStorage `cs_import` as `{ user, songs, errors }` (only loaded for the same username, cleared on explicit sign out and after saving). Each card edits `title`, `key` and the editable text (`toEditable` / `fromEditable` with a per card memo, same as the song editor); actions split at cursor, join with previous, remove. Songs whose title already exists in the library, and songs without chords, start unticked.
+- Saving: `saveSongs(token, list)` in `Songs.gs` (bulk, one lock, `appendRows_`, unique ids, max 200, `allowDuplicate` per item, returns `{ saved, skipped }`). The client sends batches of 100 and falls back to one `saveSong` per song when the server answers `UNKNOWN_ACTION`, so it works before the owner redeploys.
+- Tests (scratchpad `imptest/`): `gen-files.js` builds Word and PDF files from the real `planLayout_` output and typical hand typed sheets (PDFs printed with headless Chrome), `run-import.js` imports them in Node (jsdom `DOMParser`, `pdfjs-dist@3.11.174` legacy build, Sarabun widths from `textWidthPt_`) and compares with the source songs; `unit-import.js` covers edge cases.
 
 ### Google Docs rendering (Render.gs)
 

@@ -596,6 +596,45 @@ table.list tbody tr:hover td { background: var(--surface-subtle); }
 .hist-desc { margin: 0; padding: var(--s-75) var(--s-100); border-radius: var(--r-lg); background: var(--surface-subtle); color: var(--text-secondary); }
 .hist-actions { display: flex; flex-wrap: wrap; gap: var(--s-75); margin-top: auto; }
 
+.row.center { justify-content: center; }
+.imp-pending { align-items: center; }
+.imp-pending .btn { flex: none; }
+.imp-summary { display: flex; flex-wrap: wrap; gap: var(--s-75); }
+.imp-errors h2 { display: flex; align-items: center; gap: var(--s-75); margin: 0 0 var(--s-100); color: var(--text-error); }
+.imp-errors h2 .ph { font-size: 20px; flex: none; }
+.imp-errors ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--s-75); }
+.imp-errors li { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s-25) var(--s-75); overflow-wrap: anywhere; }
+.imp-hint { text-align: center; margin: 0; }
+.imp-card { container-type: inline-size; }
+.imp-card.is-off .imp-meta, .imp-card.is-off .imp-body { opacity: 0.55; transition: opacity var(--dur-color) var(--ease); }
+.imp-head { display: flex; align-items: flex-start; gap: var(--s-100); }
+.imp-include { flex: none; width: 24px; display: flex; flex-direction: column; align-items: center; gap: var(--s-50); padding-top: var(--s-400); cursor: pointer; }
+.imp-include input { width: 20px; height: 20px; margin: 0; accent-color: var(--action-primary); cursor: pointer; }
+.imp-num { font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-tertiary); }
+.imp-fields { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) 112px; gap: var(--s-100); }
+.imp-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-75); margin: var(--s-75) 0 var(--s-100) calc(24px + var(--s-100)); }
+.imp-src { display: inline-flex; align-items: center; gap: var(--s-50); min-width: 0; overflow-wrap: anywhere; }
+.imp-src .ph { font-size: 16px; flex: none; }
+.imp-flags { display: inline-flex; flex-wrap: wrap; gap: var(--s-50); }
+.imp-flags:empty { display: none; }
+.imp-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-200); }
+.imp-edit textarea { width: 100%; min-height: 160px; resize: vertical; }
+.imp-preview { display: none; min-width: 0; }
+.imp-preview > .f { font-size: 14px; line-height: 20px; font-weight: 500; color: var(--text-secondary); margin-bottom: var(--s-50); }
+.imp-preview .sheet { max-height: 520px; overflow: auto; border: 1px solid var(--border); border-radius: var(--r-lg); padding: var(--s-100); }
+.imp-card.show-preview .imp-preview { display: block; }
+.imp-actions { display: flex; flex-wrap: wrap; gap: var(--s-75); margin-top: var(--s-100); }
+@container (min-width: 720px) {
+  .imp-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .imp-preview { display: block; }
+  .imp-toggle { display: none; }
+}
+.imp-savebar { position: sticky; bottom: calc(var(--s-100) + env(safe-area-inset-bottom)); z-index: 20; display: flex; align-items: center; gap: var(--s-100); flex-wrap: wrap; background: var(--surface-glass); -webkit-backdrop-filter: blur(16px) saturate(1.4); backdrop-filter: blur(16px) saturate(1.4); box-shadow: var(--shadow); }
+.imp-savebar p { margin: 0; min-width: 200px; }
+@media (max-width: 400px) {
+  .imp-fields { grid-template-columns: minmax(0, 1fr); }
+}
+
 .stat-num { font-size: 30px; line-height: 36px; font-weight: 600; color: var(--text-info); }
 .bar { width: 96px; height: 8px; background: var(--surface-info-subtle); border-radius: var(--r-full); overflow: hidden; flex: none; }
 .bar span { display: block; height: 100%; background: var(--action-primary); transform-origin: left center; }
@@ -671,6 +710,8 @@ table.list tbody tr:hover td { background: var(--surface-subtle); }
   .bar { width: 64px; }
   .modal { padding: var(--s-200); }
   .hist-card { padding: var(--s-200); }
+  .imp-meta { margin-left: 0; }
+  .imp-savebar { bottom: calc(var(--s-75) + env(safe-area-inset-bottom)); }
   .perm-row { padding: var(--s-100); }
 }
 
