@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Page not found · Lyrics &amp; Chords</title>
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" href="/chordsheet/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Sarabun:wght@400;500;600&display=swap">
+  <style>
+    :root { color-scheme: light; --bg: #f7f7f8; --card: #ffffff; --border: #e3e5e9; --text: #16181d; --muted: #4a505c; --action: #2f4fb5; --action-hover: #2843a0; --ring: #2f4fb5; }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) { color-scheme: dark; --bg: #181818; --card: #1f1f1f; --border: #313131; --text: #f2f2f2; --muted: #c7c7c7; --action: #4a69d4; --action-hover: #3f5cc4; --ring: #9db2ff; }
+    }
+    :root[data-theme="dark"] { color-scheme: dark; --bg: #181818; --card: #1f1f1f; --border: #313131; --text: #f2f2f2; --muted: #c7c7c7; --action: #4a69d4; --action-hover: #3f5cc4; --ring: #9db2ff; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; background: var(--bg); color: var(--text); font-family: 'Geist', 'Sarabun', system-ui, sans-serif; font-size: 16px; line-height: 24px; }
+    main { width: 100%; max-width: 400px; background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 32px; text-align: center; }
+    .mark { width: 48px; height: 48px; margin: 0 auto 16px; border-radius: 12px; background: var(--action); display: flex; align-items: center; justify-content: center; }
+    h1 { font-size: 24px; line-height: 32px; font-weight: 600; margin: 0 0 8px; text-wrap: balance; }
+    p { font-size: 14px; line-height: 20px; color: var(--muted); margin: 0 0 24px; text-wrap: pretty; }
+    a { display: inline-flex; align-items: center; justify-content: center; padding: 8px 12px; border-radius: 8px; background: var(--action); color: #ffffff; font-weight: 600; text-decoration: none; transition: background-color 300ms cubic-bezier(0.22, 1, 0.36, 1), transform 300ms cubic-bezier(0.22, 1, 0.36, 1); }
+    a:hover { background: var(--action-hover); }
+    a:active { transform: scale(0.98); }
+    a:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+    @media (prefers-reduced-motion: reduce) { a:active { transform: none; } }
+  </style>
+  <script>
+    try {
+      var th = JSON.parse(localStorage.getItem('cs_theme') || 'null');
+      if (th === 'dark' || th === 'light') {
+        document.documentElement.setAttribute('data-theme', th);
+      }
+    } catch (e) {
+    }
+  </script>
+</head>
+<body>
+  <main>
+    <div class="mark" aria-hidden="true">
+      <svg width="28" height="28" viewBox="0 0 64 64"><path d="M26 44.5V20l22-5v24.5" fill="none" stroke="#fff" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/><circle cx="20.5" cy="44.5" r="6" fill="#fff"/><circle cx="42.5" cy="39.5" r="6" fill="#fff"/></svg>
+    </div>
+    <h1>Page not found</h1>
+    <p>This page does not exist. The songs are on the main page.<br>ไม่พบหน้านี้ กลับไปที่หน้าหลักของระบบ</p>
+    <a href="/chordsheet/">Go to the app · ไปที่ระบบ</a>
+  </main>
+</body>
+</html>

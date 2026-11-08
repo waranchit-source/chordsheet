@@ -248,7 +248,7 @@ function planLayout_(title, description, items) {
       paras: paras,
       mode: mode,
       fullMode: fullMode,
-      reason: mode === 'half' ? 'ครึ่งหน้า' : (!fitsWidth ? 'เต็มหน้า (บรรทัดยาว)' : (!fitsHeight ? 'เต็มหน้า (เพลงยาว แบ่ง 2 คอลัมน์)' : 'เต็มหน้า'))
+      reason: mode === 'half' ? 'half' : (!fitsWidth ? 'full_wide' : (!fitsHeight ? 'full_split' : 'full'))
     };
   });
   var pages = [];

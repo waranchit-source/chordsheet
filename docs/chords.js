@@ -1,4 +1,3 @@
-<script>
 (function (global) {
   var SHARP = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
   var FLAT = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
@@ -10,8 +9,10 @@
   var CHORD_RE = /^([A-G])([#b]?)([^\/\s]*)(?:\/([A-G])([#b]?))?$/;
   var QUALITY_RE = /^(m|min|maj|M|dim|aug|sus|add|\+|-|°|ø|[0-9]|\(|\)|b|#|alt|no)*$/;
   var SECTION_LABEL_RE = /^\s*(intro|verse|chorus|pre[\s-]?chorus|bridge|solo|outro|outtro|midtro|interlude|instrumental|tag|ending|coda|last\s*line|refrain|hook|ท่อน|ฮุค|สร้อย|ดนตรี|จบ)/i;
+  var LABEL_PREFIX_RE = /^(\s*(?:intro|verse|chorus|pre[\s-]?chorus|bridge|solo|outro|outtro|midtro|interlude|instrumental|tag|ending|coda|last\s*line|refrain|hook|ท่อน|ฮุค|สร้อย|ดนตรี|จบ)[^\s:\[\]\u0E00-\u0E7F]*(?:\s*(?:[0-9]{1,2}|[A-Z])(?=\s*(?::|$)))?\s*:?)/i;
   var THAI_RE = /[฀-๿]/;
   var THAI_COMBINING_RE = /[ัิ-ฺ็-๎]/;
+  var INLINE_RUN_RE = /([^\s\u0E00-\u0E7F\[\]]+)( ?)/g;
 
   function mod12(n) {
     return ((n % 12) + 12) % 12;
@@ -193,8 +194,8 @@
         html.push('<div class="cl-inline">' + parts.join(' ') + '</div>');
       } else {
         var segs = p.segments.map(function (s) {
-          var text = s.text === '' ? ' ' : s.text;
-          return '<span class="cl-seg' + (s.chord ? ' has-chord' : '') + '"><span class="cl-c">' + (s.chord ? esc(s.chord) : ' ') + '</span><span class="cl-l">' + esc(text) + '</span></span>';
+          var text = s.text === '' ? ' ' : s.text;
+          return '<span class="cl-seg' + (s.chord ? ' has-chord' : '') + '"><span class="cl-c">' + (s.chord ? esc(s.chord) : ' ') + '</span><span class="cl-l">' + esc(text) + '</span></span>';
         });
         html.push('<div class="cl-line">' + segs.join('') + '</div>');
       }
@@ -271,6 +272,13 @@
         }
         idx = i + 1;
       }
+      while (idx < lyricLine.length && /\s/.test(lyricLine.charAt(idx))) {
+        idx++;
+      }
+      if (idx >= lyricLine.length) {
+        tail.push(c);
+        return;
+      }
       inserts.push({ idx: idx, chord: c.chord });
     });
     var out = '';
@@ -286,35 +294,269 @@
     return out;
   }
 
-  function convertChordsOverLyrics(text) {
-    var lines = String(text || '').replace(/\r\n/g, '\n').replace(/\t/g, '    ').split('\n');
+  function hasBracket(line) {
+    return /\[[^\]]*\]/.test(line);
+  }
+
+  function hasOwn(obj, key) {
+    return Object.prototype.hasOwnProperty.call(obj, key);
+  }
+
+  function labelPrefix(line) {
+    var m = LABEL_PREFIX_RE.exec(line);
+    return m ? m[1] : '';
+  }
+
+  function bracketThaiText(text) {
+    return text.replace(INLINE_RUN_RE, function (all, run) {
+      return isChordToken(run) ? '[' + run + ']' : all;
+    });
+  }
+
+  function bracketThaiLine(line) {
+    var prefix = labelPrefix(line);
+    var rest = line.substring(prefix.length);
+    if (!THAI_RE.test(rest)) {
+      return prefix + bracketChordsInLine(rest);
+    }
+    var out = '';
+    var re = /\[[^\]]*\]/g;
+    var last = 0;
+    var m;
+    while ((m = re.exec(rest)) !== null) {
+      out += bracketThaiText(rest.substring(last, m.index)) + m[0];
+      last = re.lastIndex;
+    }
+    out += bracketThaiText(rest.substring(last));
+    return prefix + out;
+  }
+
+  function isMusicLine(line) {
+    var tokens = line.trim().split(/\s+/).filter(Boolean);
+    return tokens.some(isChordToken) && (/:/.test(line) || SECTION_LABEL_RE.test(line));
+  }
+
+  function bracketMusicLine(line) {
+    var prefix = labelPrefix(line);
+    return prefix + bracketChordsInLine(line.substring(prefix.length));
+  }
+
+  function isLyricLine(line) {
+    if (line === null || line === undefined) {
+      return false;
+    }
+    var t = String(line).replace(/\s+$/, '');
+    if (!t.trim() || hasBracket(t) || isChordOnlyLine(t)) {
+      return false;
+    }
+    return parseLine(t).type === 'text';
+  }
+
+  function normalizeLines(text) {
+    return String(text || '').replace(/\r\n?/g, '\n').replace(/\t/g, '    ').split('\n');
+  }
+
+  function fromEditable(text, memo) {
+    var mp = memo && memo.p ? memo.p : {};
+    var ms = memo && memo.s ? memo.s : {};
+    var lines = normalizeLines(text);
     var out = [];
     for (var i = 0; i < lines.length; i++) {
       var line = lines[i].replace(/\s+$/, '');
-      if (/\[[^\]]+\]/.test(line)) {
+      var next = i + 1 < lines.length ? lines[i + 1].replace(/\s+$/, '') : null;
+      if (next !== null && hasOwn(mp, line + '\n' + next)) {
+        out.push(mp[line + '\n' + next]);
+        i++;
+        continue;
+      }
+      if (hasOwn(ms, line)) {
+        out.push(ms[line]);
+        continue;
+      }
+      if (!line.trim()) {
+        out.push('');
+        continue;
+      }
+      if (THAI_RE.test(line)) {
+        out.push(bracketThaiLine(line));
+        continue;
+      }
+      if (hasBracket(line)) {
         out.push(line);
         continue;
       }
-      var next = i + 1 < lines.length ? lines[i + 1].replace(/\s+$/, '') : null;
       if (isChordOnlyLine(line)) {
-        if (next !== null && next.trim() && !isChordOnlyLine(next) && THAI_RE.test(next)) {
-          out.push(mergeChordLine(line, next));
+        if (isLyricLine(next)) {
+          var merged = mergeChordLine(line, next);
+          out.push(THAI_RE.test(merged) ? bracketThaiLine(merged) : merged);
           i++;
         } else {
           out.push(bracketChordsInLine(line));
         }
         continue;
       }
-      if (!THAI_RE.test(line)) {
-        var tokens = line.trim().split(/\s+/).filter(Boolean);
-        if (tokens.some(isChordToken) && (/:/.test(line) || SECTION_LABEL_RE.test(line))) {
-          out.push(bracketChordsInLine(line));
-          continue;
-        }
+      if (isMusicLine(line)) {
+        out.push(bracketMusicLine(line));
+        continue;
       }
       out.push(line);
     }
     return out.join('\n');
+  }
+
+  function autoBracket(text) {
+    return fromEditable(text, null);
+  }
+
+  function unbracketInner(inner) {
+    var tokens = String(inner).trim().split(/\s+/).filter(Boolean);
+    if (!tokens.length || !tokens.every(isChordToken)) {
+      return null;
+    }
+    return tokens.join(' ');
+  }
+
+  function unbracketThai(line) {
+    var prefix = labelPrefix(line);
+    var rest = line.substring(prefix.length);
+    if (!THAI_RE.test(rest)) {
+      var mu = unbracketMusic(rest);
+      return prefix + (mu === null ? rest : mu);
+    }
+    var out = '';
+    var re = /\[([^\]]*)\]/g;
+    var last = 0;
+    var m;
+    while ((m = re.exec(rest)) !== null) {
+      out += rest.substring(last, m.index);
+      var chord = unbracketInner(m[1]);
+      if (chord === null) {
+        out += m[0];
+      } else {
+        var prev = out.length ? out.charAt(out.length - 1) : (prefix.length ? prefix.charAt(prefix.length - 1) : '');
+        if (prev && !/\s/.test(prev) && !THAI_RE.test(prev)) {
+          out += ' ';
+        }
+        out += chord;
+        if (re.lastIndex < rest.length) {
+          out += ' ';
+        }
+      }
+      last = re.lastIndex;
+    }
+    out += rest.substring(last);
+    return prefix + out;
+  }
+
+  function chordAbovePair(line) {
+    var p = parseLine(line);
+    if (p.type !== 'chordlyric') {
+      return null;
+    }
+    var chordLine = '';
+    var lyric = '';
+    for (var i = 0; i < p.segments.length; i++) {
+      var seg = p.segments[i];
+      if (seg.chord) {
+        var c = unbracketInner(seg.chord);
+        if (c === null || /\s/.test(c)) {
+          return null;
+        }
+        var cols = visualColumns(lyric);
+        var col = cols[cols.length - 1];
+        if (chordLine.length && col < chordLine.length + 1) {
+          col = chordLine.length + 1;
+        }
+        while (chordLine.length < col) {
+          chordLine += ' ';
+        }
+        chordLine += c;
+      }
+      lyric += seg.text;
+    }
+    if (!isChordOnlyLine(chordLine) || !isLyricLine(lyric)) {
+      return null;
+    }
+    return [chordLine, lyric];
+  }
+
+  function unbracketMusic(line) {
+    var out = '';
+    var re = /\[([^\]]*)\]/g;
+    var last = 0;
+    var m;
+    while ((m = re.exec(line)) !== null) {
+      out += line.substring(last, m.index);
+      var c = unbracketInner(m[1]);
+      if (c === null) {
+        return null;
+      }
+      if (out.length && !/\s$/.test(out)) {
+        out += ' ';
+      }
+      out += c;
+      var nextCh = line.charAt(re.lastIndex);
+      if (nextCh && !/\s/.test(nextCh)) {
+        out += ' ';
+      }
+      last = re.lastIndex;
+    }
+    out += line.substring(last);
+    return out;
+  }
+
+  function toEditable(content) {
+    var memo = { p: {}, s: {} };
+    var entries = String(content || '').replace(/\r\n?/g, '\n').split('\n').map(function (orig) {
+      var line = orig.replace(/\t/g, '    ').replace(/\s+$/, '');
+      var disp = [line];
+      if (hasBracket(line)) {
+        if (THAI_RE.test(line)) {
+          var t = unbracketThai(line);
+          if (t !== line && fromEditable(t, null) === line) {
+            disp = [t];
+          }
+        } else {
+          var pair = chordAbovePair(line);
+          if (pair && fromEditable(pair.join('\n'), null) === line) {
+            disp = pair;
+          } else {
+            var mu = unbracketMusic(line);
+            if (mu !== null && mu !== line && fromEditable(mu, null) === line) {
+              disp = [mu];
+            }
+          }
+        }
+      }
+      return { orig: orig, line: line, disp: disp };
+    });
+    entries.forEach(function (e, i) {
+      if (e.disp.length === 2) {
+        if (e.orig !== e.line) {
+          memo.p[e.disp[0] + '\n' + e.disp[1]] = e.orig;
+        }
+        return;
+      }
+      var d = e.disp[0];
+      var nextEntry = entries[i + 1];
+      var nextFirst = nextEntry ? nextEntry.disp[0] : null;
+      var needs = e.orig !== e.line || fromEditable(d, null) !== e.line;
+      if (!needs && d.trim() && !THAI_RE.test(d) && !hasBracket(d) && isChordOnlyLine(d) && isLyricLine(nextFirst)) {
+        needs = true;
+      }
+      if (needs) {
+        memo.s[d] = e.orig;
+      }
+    });
+    var text = [];
+    entries.forEach(function (e) {
+      e.disp.forEach(function (d) { text.push(d); });
+    });
+    return { text: text.join('\n'), memo: memo };
+  }
+
+  function tidy(text, memo) {
+    return toEditable(fromEditable(text, memo));
   }
 
   function shiftLabel(shift) {
@@ -339,9 +581,11 @@
     prepareForOutput: prepareForOutput,
     parseLine: parseLine,
     renderHtml: renderHtml,
-    convertChordsOverLyrics: convertChordsOverLyrics,
+    autoBracket: autoBracket,
+    fromEditable: fromEditable,
+    toEditable: toEditable,
+    tidy: tidy,
     shiftLabel: shiftLabel,
     esc: esc
   };
 })(typeof window !== 'undefined' ? window : globalThis);
-</script>

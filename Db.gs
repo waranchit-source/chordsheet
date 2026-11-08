@@ -11,13 +11,13 @@ function getSpreadsheet_() {
   if (active) {
     return active;
   }
-  throw new Error('ยังไม่ได้รัน setup()');
+  throw new Error('SETUP_REQUIRED');
 }
 
 function getSheet_(name) {
   var sheet = getSpreadsheet_().getSheetByName(name);
   if (!sheet) {
-    throw new Error('ไม่พบชีต ' + name + ' กรุณารัน setup()');
+    throw new Error('SHEET_NOT_FOUND:' + name);
   }
   return sheet;
 }
@@ -70,6 +70,18 @@ function updateRow_(name, rowNumber, obj) {
   sheet.getRange(rowNumber, 1, 1, HEADERS[name].length).setValues([rowFromObject_(name, obj)]);
 }
 
+function rewriteRows_(name, objs) {
+  var sheet = getSheet_(name);
+  var cols = HEADERS[name].length;
+  var lastRow = sheet.getLastRow();
+  if (lastRow >= 2) {
+    sheet.getRange(2, 1, lastRow - 1, cols).clearContent();
+  }
+  if (objs.length) {
+    sheet.getRange(2, 1, objs.length, cols).setValues(objs.map(function (o) { return rowFromObject_(name, o); }));
+  }
+}
+
 function findBy_(name, field, value) {
   var rows = readTable_(name);
   for (var i = 0; i < rows.length; i++) {
@@ -113,7 +125,7 @@ function toDateOnly_(v) {
 function getFolder_(propKey) {
   var id = getProps_().getProperty(propKey);
   if (!id) {
-    throw new Error('ยังไม่ได้สร้างโฟลเดอร์ใน Drive กรุณารัน setup()');
+    throw new Error('SETUP_REQUIRED');
   }
   return DriveApp.getFolderById(id);
 }

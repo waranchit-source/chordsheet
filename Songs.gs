@@ -44,7 +44,7 @@ function getSong(token, songId) {
   requireSession_(token);
   var s = findBy_(SHEETS.SONGS, 'SongId', songId);
   if (!s || isDeleted_(s.Deleted)) {
-    throw new Error('ไม่พบเพลงนี้');
+    throw new Error('SONG_NOT_FOUND');
   }
   return songToClient_(s, true);
 }
@@ -67,13 +67,13 @@ function saveSong(token, data) {
   var title = String(data.title || '').trim();
   var content = String(data.content || '').replace(/\r\n/g, '\n');
   if (!title) {
-    throw new Error('กรุณาใส่ชื่อเพลง');
+    throw new Error('TITLE_REQUIRED');
   }
   if (!content.trim()) {
-    throw new Error('กรุณาใส่เนื้อเพลง');
+    throw new Error('CONTENT_REQUIRED');
   }
   if (content.length > 45000) {
-    throw new Error('เนื้อเพลงยาวเกินไป');
+    throw new Error('CONTENT_TOO_LONG');
   }
   var layout = ['auto', 'half', 'full'].indexOf(data.defaultLayout) >= 0 ? data.defaultLayout : 'auto';
   return withLock_(function () {
@@ -81,7 +81,7 @@ function saveSong(token, data) {
     if (data.id) {
       var s = findBy_(SHEETS.SONGS, 'SongId', data.id);
       if (!s || isDeleted_(s.Deleted)) {
-        throw new Error('ไม่พบเพลงนี้');
+        throw new Error('SONG_NOT_FOUND');
       }
       s.Title = title;
       s.Artist = String(data.artist || '').trim();
@@ -124,7 +124,7 @@ function deleteSong(token, songId) {
   return withLock_(function () {
     var s = findBy_(SHEETS.SONGS, 'SongId', songId);
     if (!s) {
-      throw new Error('ไม่พบเพลงนี้');
+      throw new Error('SONG_NOT_FOUND');
     }
     s.Deleted = true;
     s.UpdatedBy = session.displayName;

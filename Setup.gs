@@ -28,6 +28,7 @@ function setup() {
   ss.getSheetByName(SHEETS.SETLISTS).getRange('A:J').setNumberFormat('@');
   ss.getSheetByName(SHEETS.USAGE).getRange('B:G').setNumberFormat('@');
   ss.getSheetByName(SHEETS.USERS).getRange('A:E').setNumberFormat('@');
+  ss.getSheetByName(SHEETS.SESSIONS).getRange('A:B').setNumberFormat('@');
 
   var defaultSheet = ss.getSheetByName('Sheet1') || ss.getSheetByName('ชีต1');
   if (defaultSheet && ss.getSheets().length > 1 && defaultSheet.getLastRow() === 0) {
@@ -90,10 +91,40 @@ function resetAdminPassword() {
     user.PasswordHash = hashPassword_(password, salt);
     user.Active = true;
     user.Role = 'admin';
+    user.Status = USER_STATUS.APPROVED;
     updateRow_(SHEETS.USERS, user._row, user);
   });
   Logger.log('รหัสผ่านใหม่ของ admin: ' + password);
   return password;
+}
+
+function ensureSchema_() {
+  var cache = CacheService.getScriptCache();
+  if (cache.get(SCHEMA_VERSION)) {
+    return;
+  }
+  var ss = getSpreadsheet_();
+  Object.keys(HEADERS).forEach(function (name) {
+    var headers = HEADERS[name];
+    var sheet = ss.getSheetByName(name);
+    if (!sheet) {
+      sheet = ss.insertSheet(name);
+      sheet.setFrozenRows(1);
+      if (name === SHEETS.SESSIONS) {
+        sheet.getRange('A:B').setNumberFormat('@');
+      }
+    }
+    var maxCols = sheet.getMaxColumns();
+    if (maxCols < headers.length) {
+      sheet.insertColumnsAfter(maxCols, headers.length - maxCols);
+    }
+    var current = sheet.getRange(1, 1, 1, headers.length).getValues()[0];
+    var same = headers.every(function (h, i) { return String(current[i]) === h; });
+    if (!same) {
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#e8eefc');
+    }
+  });
+  cache.put(SCHEMA_VERSION, '1', SESSION_TTL_SECONDS);
 }
 
 function generatePassword_() {

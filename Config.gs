@@ -1,23 +1,33 @@
 var APP_NAME = 'ระบบเนื้อเพลงและคอร์ด';
 
+var FRONTEND_URL = 'https://waranchit-source.github.io/chordsheet/';
+
 var SHEETS = {
   USERS: 'Users',
   SONGS: 'Songs',
   SETLISTS: 'Setlists',
-  USAGE: 'UsageLog'
+  USAGE: 'UsageLog',
+  SESSIONS: 'Sessions'
 };
 
 var HEADERS = {
-  Users: ['Username', 'DisplayName', 'PasswordHash', 'Salt', 'Role', 'Active', 'CreatedAt'],
+  Users: ['Username', 'DisplayName', 'PasswordHash', 'Salt', 'Role', 'Active', 'CreatedAt', 'Status', 'ReviewedBy', 'ReviewedAt'],
   Songs: ['SongId', 'Title', 'Artist', 'OriginalKey', 'Content', 'DefaultLayout', 'Tags', 'CreatedBy', 'CreatedAt', 'UpdatedBy', 'UpdatedAt', 'Deleted'],
   Setlists: ['SetlistId', 'Title', 'ServiceDate', 'Leader', 'Description', 'OutputType', 'DocId', 'PdfId', 'ItemsJson', 'CreatedBy', 'CreatedAt'],
-  UsageLog: ['Timestamp', 'SetlistId', 'ServiceDate', 'Leader', 'SongId', 'SongTitle', 'Key', 'Shift']
+  UsageLog: ['Timestamp', 'SetlistId', 'ServiceDate', 'Leader', 'SongId', 'SongTitle', 'Key', 'Shift'],
+  Sessions: ['TokenHash', 'Username', 'CreatedAt', 'ExpiresAt']
 };
 
 var ROLES = {
   admin: 3,
   leader: 2,
   viewer: 1
+};
+
+var USER_STATUS = {
+  PENDING: 'pending',
+  APPROVED: 'approved',
+  REJECTED: 'rejected'
 };
 
 var DRIVE_FOLDER_NAMES = {
@@ -34,8 +44,12 @@ var PROP_KEYS = {
 };
 
 var SESSION_TTL_SECONDS = 21600;
+var REMEMBER_DAYS = 30;
 var LOGIN_MAX_FAILS = 5;
 var LOGIN_LOCK_SECONDS = 600;
+var REGISTER_MAX_PER_WINDOW = 20;
+var REGISTER_WINDOW_SECONDS = 600;
+var SCHEMA_VERSION = 'schema_v2';
 var HASH_ROUNDS = 200;
 
 var LAYOUT = {

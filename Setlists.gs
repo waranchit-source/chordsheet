@@ -29,10 +29,10 @@ function exportPdf_(docId, name) {
 
 function sanitizeItems_(items) {
   if (!items || !items.length) {
-    throw new Error('กรุณาเลือกเพลงอย่างน้อย 1 เพลง');
+    throw new Error('SETLIST_EMPTY');
   }
   if (items.length > 40) {
-    throw new Error('เลือกเพลงได้สูงสุด 40 เพลงต่อชุด');
+    throw new Error('SETLIST_TOO_MANY');
   }
   return items.map(function (it) {
     var shift = Math.round(Number(it.shift) || 0);
@@ -110,7 +110,7 @@ function generateSetlist(token, payload) {
   var summary = plan.pages.map(function (page, i) {
     return {
       page: i + 1,
-      songs: page.items.map(function (p) { return p.item.title + ' — ' + p.reason; })
+      songs: page.items.map(function (p) { return { title: p.item.title, reason: p.reason }; })
     };
   });
   var result = fileLinks_(docId, pdfId);
@@ -124,10 +124,10 @@ function exportSetlistPdf(token, setlistId) {
   requireSession_(token, 'leader');
   var s = findBy_(SHEETS.SETLISTS, 'SetlistId', setlistId);
   if (!s) {
-    throw new Error('ไม่พบชุดเพลงนี้');
+    throw new Error('SETLIST_NOT_FOUND');
   }
   if (!s.DocId) {
-    throw new Error('ชุดเพลงนี้ไม่มีไฟล์ Doc');
+    throw new Error('SETLIST_NO_DOC');
   }
   var name = safeFileName_(toDateOnly_(s.ServiceDate) + ' ' + s.Title);
   var pdfId = exportPdf_(String(s.DocId), name);
@@ -181,7 +181,7 @@ function getSetlist(token, setlistId) {
   requireSession_(token);
   var s = findBy_(SHEETS.SETLISTS, 'SetlistId', setlistId);
   if (!s) {
-    throw new Error('ไม่พบชุดเพลงนี้');
+    throw new Error('SETLIST_NOT_FOUND');
   }
   return setlistToClient_(s, true);
 }
@@ -191,7 +191,7 @@ function deleteSetlist(token, setlistId) {
   return withLock_(function () {
     var s = findBy_(SHEETS.SETLISTS, 'SetlistId', setlistId);
     if (!s) {
-      throw new Error('ไม่พบชุดเพลงนี้');
+      throw new Error('SETLIST_NOT_FOUND');
     }
     [s.DocId, s.PdfId].forEach(function (id) {
       if (id) {
