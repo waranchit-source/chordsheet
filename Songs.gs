@@ -24,13 +24,13 @@ function songToClient_(s, withContent) {
   return out;
 }
 
-function listSongs(token) {
-  requireSession_(token);
+function songList_() {
   var usage = songUsageSummary_();
   return readTable_(SHEETS.SONGS).filter(function (s) {
     return !isDeleted_(s.Deleted) && s.SongId;
   }).map(function (s) {
-    var item = songToClient_(s, false);
+    var item = songToClient_(s, true);
+    item.searchText = item.content.replace(/\[[^\]]*\]/g, '').replace(/\s+/g, ' ').substring(0, 400);
     var u = usage[item.id];
     item.useCount = u ? u.count : 0;
     item.lastUsed = u ? u.last : '';
@@ -38,6 +38,11 @@ function listSongs(token) {
   }).sort(function (a, b) {
     return a.title.localeCompare(b.title, 'th');
   });
+}
+
+function listSongs(token) {
+  requireSession_(token);
+  return songList_();
 }
 
 function getSong(token, songId) {

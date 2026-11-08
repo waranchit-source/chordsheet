@@ -54,6 +54,7 @@ function apiRoutes_() {
     register: { fn: register, auth: false },
     logout: { fn: logout, auth: true },
     getMe: { fn: getMe, auth: true },
+    bootstrap: { fn: bootstrap, auth: true },
     changeMyPassword: { fn: changeMyPassword, auth: true },
     listUsers: { fn: listUsers, auth: true },
     listLeaderNames: { fn: listLeaderNames, auth: true },

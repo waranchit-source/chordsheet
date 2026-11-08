@@ -13,8 +13,8 @@
       'nav.users': 'Users',
       'nav.account': 'My account',
       'nav.logout': 'Sign out',
-      'nav.openMenu': 'Open menu',
-      'nav.closeMenu': 'Close menu',
+      'nav.openMenu': 'Open sidebar',
+      'nav.closeMenu': 'Close sidebar',
       'nav.pending': '{n} waiting for approval',
 
       'pref.langSwitch': 'ไทย',
@@ -323,8 +323,8 @@
       'nav.users': 'ผู้ใช้',
       'nav.account': 'บัญชีของฉัน',
       'nav.logout': 'ออกจากระบบ',
-      'nav.openMenu': 'เปิดเมนู',
-      'nav.closeMenu': 'ปิดเมนู',
+      'nav.openMenu': 'เปิดแถบเมนู',
+      'nav.closeMenu': 'ปิดแถบเมนู',
       'nav.pending': 'รออนุมัติ {n} คน',
 
       'pref.langSwitch': 'English',

@@ -22,9 +22,12 @@
   <meta name="format-detection" content="telephone=no">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://script.google.com">
+  <link rel="preconnect" href="https://script.googleusercontent.com">
+  <link rel="preconnect" href="https://unpkg.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&family=Sarabun:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
-  <link rel="stylesheet" href="styles.css?v=2026110802">
+  <link rel="stylesheet" href="styles.css?v=2026110803">
   <script>
     try {
       var th = JSON.parse(localStorage.getItem('cs_theme') || 'null');
@@ -34,6 +37,9 @@
       if (localStorage.getItem('cs_lang') === 'th') {
         document.documentElement.lang = 'th';
       }
+      if (JSON.parse(localStorage.getItem('cs_sidebar') || 'true') !== false && window.matchMedia('(min-width: 1024px)').matches) {
+        document.documentElement.classList.add('sb-open');
+      }
     } catch (e) {
     }
   </script>
@@ -41,21 +47,29 @@
 <body>
   <a class="skip" id="skipLink" href="#view">Skip to content</a>
   <div id="loading" class="loading hide" aria-hidden="true"><span></span></div>
-  <header id="topbar" class="topbar hide">
-    <nav class="navbar" id="mainNav" aria-label="Main">
+  <aside class="sidebar" id="sidebar" aria-label="Main" inert>
+    <div class="sb-head">
       <span class="brand"><span class="brand-mark" aria-hidden="true"><span class="ph ph-music-notes"></span></span><span id="brandName">Lyrics &amp; Chords</span></span>
-      <div class="nav" id="nav"></div>
-      <div class="nav-tools" id="navTools"></div>
-      <button type="button" class="menu-toggle" id="menuToggle" aria-expanded="false" aria-controls="mobileMenu" aria-label="Open menu"><span></span><span></span></button>
-    </nav>
-  </header>
-  <div class="mobile-menu" id="mobileMenu" aria-hidden="true" inert></div>
-  <main class="wrap" id="view" tabindex="-1"></main>
+      <button type="button" class="sb-close" id="sbClose" aria-label="Close sidebar"><span class="ph ph-x" aria-hidden="true"></span></button>
+    </div>
+    <nav class="sb-nav" id="nav" aria-label="Main"></nav>
+    <div class="sb-foot" id="navTools"></div>
+  </aside>
+  <div class="sb-backdrop" id="sbBackdrop"></div>
+  <div class="main-col" id="mainCol">
+    <header class="topstrip" id="topbar">
+      <div class="topstrip-inner">
+        <button type="button" class="sb-toggle" id="menuToggle" aria-controls="sidebar" aria-expanded="false" aria-label="Open sidebar"><span class="ph ph-sidebar-simple" aria-hidden="true"></span></button>
+        <span class="topstrip-title" id="pageTitle"></span>
+      </div>
+    </header>
+    <main class="wrap" id="view" tabindex="-1"></main>
+  </div>
   <div id="modalRoot"></div>
   <div id="toastRoot" class="toast-root"></div>
-  <script src="config.js?v=2026110802"></script>
-  <script src="i18n.js?v=2026110802"></script>
-  <script src="chords.js?v=2026110802"></script>
-  <script src="app.js?v=2026110802"></script>
+  <script src="config.js?v=2026110803"></script>
+  <script src="i18n.js?v=2026110803"></script>
+  <script src="chords.js?v=2026110803"></script>
+  <script src="app.js?v=2026110803"></script>
 </body>
 </html>

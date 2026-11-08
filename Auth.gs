@@ -154,7 +154,23 @@ function login(username, password, remember) {
   if (keep) {
     storeRememberedSession_(token, uname);
   }
-  return { token: token, user: session, remember: keep };
+  return { token: token, user: session, remember: keep, boot: bootData_(session) };
+}
+
+function bootData_(session) {
+  var users = readTable_(SHEETS.USERS);
+  var data = { songs: songList_(), leaders: leaderNames_(users), pendingCount: 0 };
+  if ((ROLES[session.role] || 0) >= ROLES.admin) {
+    data.pendingCount = users.filter(function (u) { return userStatus_(u) === USER_STATUS.PENDING; }).length;
+  }
+  return data;
+}
+
+function bootstrap(token) {
+  var session = requireSession_(token);
+  var data = bootData_(session);
+  data.user = session;
+  return data;
 }
 
 function register(username, displayName, password) {
@@ -263,8 +279,12 @@ function listUsers(token) {
 
 function listLeaderNames(token) {
   requireSession_(token);
+  return leaderNames_();
+}
+
+function leaderNames_(users) {
   var names = {};
-  readTable_(SHEETS.USERS).forEach(function (u) {
+  (users || readTable_(SHEETS.USERS)).forEach(function (u) {
     if (isActive_(u.Active) && (String(u.Role) === 'leader' || String(u.Role) === 'admin')) {
       names[String(u.DisplayName || u.Username)] = true;
     }

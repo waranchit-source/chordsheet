@@ -65,10 +65,26 @@ Browser (docs/*.js)  --fetch POST text/plain JSON-->  Apps Script doPost (Code.g
 
 - Google Docs throws "Cannot insert an empty text element" for empty strings in `appendParagraph`, `appendTable` cells and similar calls. Never pass `''`: use `docText_()` (turns `''` into `' '`) and `' '` for table cells. Blank lines, empty note lines and empty right columns all hit this (fixed 2026-11-08; the original version failed on every song with a blank line).
 
+### PDF chord alignment (Render.gs, Setlists.gs)
+
+- Google's Docs to PDF converter (both `getAs(PDF)` and Drive export) draws U+0020 and U+00A0 about 1.3 to 1.4 times wider than the Docs editor, while real glyphs keep their exact widths. Verified 2026-11-08 with test documents exported through Drive. Runs of spaces therefore push chords to the right in PDFs only.
+- PDF output: `buildDocument_(name, plan, true)` builds chord lines with `pdfChordText_`: invisible white `.` glyphs (regular weight) as filler before each chord, computed from the exact chord x positions that `buildChordLine_` now returns in `chords`. Spaces inside the paired lyric line become white dots too (`pdfLyricText_`). Word/Doc output keeps real spaces so the owner can edit it.
+- "Create PDF from Doc" (`exportSetlistPdf`) exports a temporary copy after `hideSpacesForPdf_` converts every space run in it to white dots, then trashes the copy.
+
+### Speed
+
+- `login` returns `boot` and the `bootstrap` action returns `{ user, songs, leaders, pendingCount }` in one call. `listSongs` includes full `content` plus `searchText`, so opening a song or adding it to a setlist needs no request.
+- The client caches songs and leaders in localStorage (`cs_cache`) and the user next to the token (`cs_user`). A returning visit renders from cache immediately and refreshes with one background `bootstrap` call. History and stats render the last loaded data first, then refresh.
+- `fetchBoot()` falls back to `getMe` + `listSongs` + `listLeaderNames` when the server answers `UNKNOWN_ACTION`, so a newer frontend keeps working against an older Apps Script deployment. Keep this kind of fallback whenever a new action is added, because the frontend deploys on push but the backend only after the owner pastes and redeploys.
+
+### Navigation
+
+- All navigation lives in a floating left sidebar (`#sidebar`). The toggle (`#menuToggle`) sits in the sticky top strip next to the page title. `html.sb-open` controls it. At 1024px and wider it pushes the content (state saved in `cs_sidebar`); below that it is an off canvas drawer with backdrop, Escape, close button and staggered links, and it closes after choosing a page.
+
 ### Mobile
 
-- Breakpoints: tables turn into stacked cards at 720px, phone layout at 640px, hamburger menu below 1200px.
-- Song page on phones: the key, reset and zoom controls live in `.song-dock`. On desktop it is `display: contents` and CSS `order` keeps the original row order; at 640px and below it becomes a fixed bottom bar, `body.has-dock` lifts the toasts above it and `.dock-spacer` keeps the last lines readable.
+- Breakpoints: tables turn into stacked cards at 720px, phone layout at 640px, sidebar becomes a drawer below 1024px.
+- Song page on phones: the key, reset and zoom controls live in `.song-dock`. On desktop it is `display: contents` and CSS `order` keeps the original row order; at 640px and below it becomes a fixed bottom bar, `body.has-dock` lifts the toasts above it and `.dock-spacer` keeps the last lines readable. The card holding the dock gets `reveal-fade` (no transform), because a transformed ancestor would make `position: fixed` relative to the card.
 - Safe area insets (`env(safe-area-inset-*)`) are applied to the nav, page padding, menu, toasts and dock (`viewport-fit=cover`).
 - `touch-action: manipulation` stops double tap zoom on rapid +½ taps; inputs and textareas are 16px on touch devices so iOS does not zoom.
 - Home screen install: `docs/manifest.webmanifest` plus PNG icons in `docs/icons/` (192, 512, maskable 512, apple touch 180). The PNGs were drawn from the favicon shapes with a small Node script (zlib PNG encoder); regenerate the same way if the logo changes. No service worker on purpose, so updates are never stuck in a cache.
@@ -83,7 +99,7 @@ Browser (docs/*.js)  --fetch POST text/plain JSON-->  Apps Script doPost (Code.g
 - Colors via semantic CSS variables, redefined for dark under `prefers-color-scheme` (unless `data-theme="light"`) and `[data-theme="dark"]`.
 - Icons: Phosphor web font 2.1.1 (`<span class="ph ph-name">`). Never Material icons.
 - Motion: `cubic-bezier(0.22, 1, 0.36, 1)`, 500ms layout, 300ms color; animate transform and opacity only; honour `prefers-reduced-motion`.
-- Floating translucent nav bar; full height mobile menu below 1200px with staggered links (60ms).
+- Floating translucent left sidebar and top strip (blurred surface, border on all sides); the drawer version below 1024px staggers its links by 60ms.
 - Every data view has loading skeleton, empty state and inline errors. No `alert()`. Copy: sentence case, no hyphens in English copy, no exclamation marks.
 - The landing page strategy part (Part A) and the tagline reveal section do not apply: this is an app, not a landing page.
 

@@ -49,9 +49,11 @@
     busy: 0,
     authView: 'login',
     authDraft: {},
-    menuOpen: false,
+    sidebarOpen: document.documentElement.classList.contains('sb-open'),
+    statsKey: '',
     reveal: false
   };
+  var narrowMq = window.matchMedia ? window.matchMedia('(max-width: 1023px)') : null;
 
   function store(key, value) {
     try {
@@ -93,26 +95,153 @@
     }
   }
 
-  function saveToken(token, remember) {
+  function saveToken(token, remember, user) {
     store('cs_token', null);
+    store('cs_user', null);
     sessionStore('cs_token', null);
+    sessionStore('cs_user', null);
     if (!token) {
       return;
     }
     if (remember) {
       store('cs_token', token);
+      store('cs_user', user || null);
     } else {
       sessionStore('cs_token', token);
+      sessionStore('cs_user', user || null);
+    }
+  }
+
+  function saveUser(user) {
+    if (state.remember) {
+      store('cs_user', user);
+    } else {
+      sessionStore('cs_user', user);
     }
   }
 
   function loadToken() {
     var tk = load('cs_token');
     if (tk) {
-      return { token: tk, remember: true };
+      return { token: tk, remember: true, user: load('cs_user') };
     }
     tk = sessionLoad('cs_token');
-    return tk ? { token: tk, remember: false } : null;
+    return tk ? { token: tk, remember: false, user: sessionLoad('cs_user') } : null;
+  }
+
+  function saveCache() {
+    try {
+      localStorage.setItem('cs_cache', JSON.stringify({ songs: state.songs, leaders: state.leaders }));
+    } catch (e) {
+      try {
+        localStorage.removeItem('cs_cache');
+      } catch (e2) {
+      }
+    }
+  }
+
+  function loadCache() {
+    var c = load('cs_cache');
+    return c && Array.isArray(c.songs) ? c : null;
+  }
+
+  function findSong(id) {
+    for (var i = 0; i < state.songs.length; i++) {
+      if (state.songs[i].id === id) {
+        return state.songs[i];
+      }
+    }
+    return null;
+  }
+
+  function applyBoot(data) {
+    if (!data) {
+      return;
+    }
+    if (data.user) {
+      state.user = data.user;
+      saveUser(data.user);
+    }
+    if (Array.isArray(data.songs)) {
+      state.songs = data.songs;
+      state.songsLoaded = true;
+    }
+    if (Array.isArray(data.leaders)) {
+      state.leaders = data.leaders;
+    }
+    state.pendingCount = Number(data.pendingCount) || 0;
+    saveCache();
+  }
+
+  function syncBuilderSongs() {
+    if (!state.builder || !state.songsLoaded) {
+      return;
+    }
+    var before = state.builder.items.length;
+    var missingContent = [];
+    state.builder.items = state.builder.items.filter(function (it) { return findSong(it.songId); });
+    state.builder.items.forEach(function (it) {
+      var s = findSong(it.songId);
+      it.title = s.title;
+      it.originalKey = s.originalKey;
+      if (typeof s.content === 'string') {
+        it.content = s.content;
+      } else if (!it.content) {
+        missingContent.push(it.songId);
+      }
+    });
+    saveBuilder();
+    if (missingContent.length) {
+      api('getSongs', missingContent).then(function (map) {
+        state.builder.items.forEach(function (it) {
+          if (map[it.songId]) {
+            it.content = map[it.songId].content;
+          }
+        });
+        if (state.view === 'builder') {
+          renderBuilderItems();
+        }
+      }).catch(fail);
+    }
+    return before !== state.builder.items.length;
+  }
+
+  function isNarrow() {
+    return !!(narrowMq && narrowMq.matches);
+  }
+
+  function setSidebar(open, focusTarget) {
+    state.sidebarOpen = !!open;
+    document.documentElement.classList.toggle('sb-open', state.sidebarOpen);
+    var sb = $('sidebar');
+    if (state.sidebarOpen && !document.body.classList.contains('auth-mode')) {
+      sb.removeAttribute('inert');
+      sb.removeAttribute('aria-hidden');
+    } else {
+      sb.setAttribute('inert', '');
+      sb.setAttribute('aria-hidden', 'true');
+    }
+    var toggle = $('menuToggle');
+    toggle.setAttribute('aria-expanded', state.sidebarOpen ? 'true' : 'false');
+    toggle.setAttribute('aria-label', t(state.sidebarOpen ? 'nav.closeMenu' : 'nav.openMenu'));
+    toggle.setAttribute('title', t(state.sidebarOpen ? 'nav.closeMenu' : 'nav.openMenu'));
+    if (!isNarrow()) {
+      store('cs_sidebar', state.sidebarOpen);
+    }
+    if (focusTarget === 'nav' && state.sidebarOpen) {
+      var first = $('nav').querySelector('.nav-link.active') || $('nav').querySelector('.nav-link');
+      if (first) {
+        first.focus();
+      }
+    } else if (focusTarget === 'toggle') {
+      toggle.focus();
+    }
+  }
+
+  function closeDrawerIfNarrow() {
+    if (isNarrow() && state.sidebarOpen) {
+      setSidebar(false);
+    }
   }
 
   function $(id) {
@@ -351,8 +480,11 @@
     }
     $('skipLink').textContent = t('a11y.skip');
     $('brandName').textContent = t('app.name');
-    $('mainNav').setAttribute('aria-label', t('nav.main'));
-    $('menuToggle').setAttribute('aria-label', t(state.menuOpen ? 'nav.closeMenu' : 'nav.openMenu'));
+    $('sidebar').setAttribute('aria-label', t('nav.main'));
+    $('nav').setAttribute('aria-label', t('nav.main'));
+    $('menuToggle').setAttribute('aria-label', t(state.sidebarOpen ? 'nav.closeMenu' : 'nav.openMenu'));
+    $('menuToggle').setAttribute('title', t(state.sidebarOpen ? 'nav.closeMenu' : 'nav.openMenu'));
+    $('sbClose').setAttribute('aria-label', t('nav.closeMenu'));
   }
 
   function prefButtons() {
@@ -405,7 +537,14 @@
     state.pendingCount = 0;
     state.users = [];
     state.usersLoaded = false;
+    state.songs = [];
+    state.songsLoaded = false;
+    state.setlists = [];
+    state.setlistsLoaded = false;
+    state.stats = null;
+    state.statsKey = '';
     saveToken(null);
+    store('cs_cache', null);
     state.authView = 'login';
     renderLogin();
     if (msg) {
@@ -440,50 +579,35 @@
       return;
     }
     var items = navItems();
-    var who = esc(state.user.displayName) + ' · ' + esc(roleLabel(state.user.role));
-    $('nav').innerHTML = items.map(function (i) { return navButton(i); }).join('');
-    $('navTools').innerHTML = prefButtons() +
-      '<span class="who caption-2" title="' + who + '">' + who + '</span>' +
-      '<button type="button" class="pref-btn icon-only" data-nav="logout" aria-label="' + esc(t('nav.logout')) + '" title="' + esc(t('nav.logout')) + '">' + ic('sign-out') + '</button>';
     var n = items.length;
-    $('mobileMenu').innerHTML = '<div class="mm-inner">' +
-      items.map(function (i, idx) { return navButton(i, idx); }).join('') +
-      '<div class="mm-sep" style="--i:' + n + '"></div>' +
-      '<div class="mm-who caption-2" style="--i:' + n + '">' + who + '</div>' +
-      '<div class="mm-tools" style="--i:' + (n + 1) + '">' + prefButtons() + '</div>' +
-      '<button type="button" class="nav-link" data-nav="logout" style="--i:' + (n + 2) + '">' + ic('sign-out') + '<span>' + esc(t('nav.logout')) + '</span></button>' +
-      '</div>';
-    [$('nav'), $('navTools'), $('mobileMenu')].forEach(function (root) {
+    var who = esc(state.user.displayName) + ' · ' + esc(roleLabel(state.user.role));
+    $('nav').innerHTML = items.map(function (i, idx) { return navButton(i, idx); }).join('');
+    $('navTools').innerHTML = '<div class="sb-sep" style="--i:' + n + '"></div>' +
+      '<div class="sb-prefs" style="--i:' + (n + 1) + '">' + prefButtons() + '</div>' +
+      '<div class="who caption-2" title="' + who + '" style="--i:' + (n + 2) + '">' + ic('user-circle') + '<span>' + who + '</span></div>' +
+      '<button type="button" class="nav-link" data-nav="logout" style="--i:' + (n + 3) + '">' + ic('sign-out') + '<span>' + esc(t('nav.logout')) + '</span></button>';
+    [$('nav'), $('navTools')].forEach(function (root) {
       each(root, '[data-nav]', function (b) {
         b.onclick = function () { go(b.getAttribute('data-nav')); };
       });
       bindPrefs(root);
     });
-  }
-
-  function toggleMenu(open) {
-    state.menuOpen = !!open;
-    var mm = $('mobileMenu');
-    mm.classList.toggle('open', state.menuOpen);
-    mm.setAttribute('aria-hidden', state.menuOpen ? 'false' : 'true');
-    if (state.menuOpen) {
-      mm.removeAttribute('inert');
-    } else {
-      mm.setAttribute('inert', '');
-    }
-    document.body.classList.toggle('menu-open', state.menuOpen);
-    $('menuToggle').setAttribute('aria-expanded', state.menuOpen ? 'true' : 'false');
-    $('menuToggle').setAttribute('aria-label', t(state.menuOpen ? 'nav.closeMenu' : 'nav.openMenu'));
+    var current = items.filter(function (i) { return isActiveNav(i[0]); })[0];
+    $('pageTitle').innerHTML = current ? ic(current[1]) + '<span>' + esc(current[2]) + '</span>' : esc(t('app.name'));
   }
 
   function hideChrome() {
-    toggleMenu(false);
+    document.body.classList.add('auth-mode');
     document.body.classList.remove('has-dock');
-    $('topbar').classList.add('hide');
+    if (isNarrow()) {
+      setSidebar(false);
+    } else {
+      setSidebar(state.sidebarOpen);
+    }
   }
 
   function go(view) {
-    toggleMenu(false);
+    closeDrawerIfNarrow();
     if (view === 'logout') {
       api('logout').catch(function () {});
       forceLogout();
@@ -504,7 +628,10 @@
   }
 
   function render() {
-    $('topbar').classList.remove('hide');
+    if (document.body.classList.contains('auth-mode')) {
+      document.body.classList.remove('auth-mode');
+      setSidebar(state.sidebarOpen);
+    }
     document.body.classList.toggle('has-dock', state.view === 'song');
     renderNav();
     var v = state.view;
@@ -539,6 +666,9 @@
     }, { rootMargin: '0px 0px -24px 0px' });
     Array.prototype.forEach.call($('view').children, function (el) {
       el.classList.add('reveal');
+      if (el.querySelector('.song-dock')) {
+        el.classList.add('reveal-fade');
+      }
       revealObserver.observe(el);
     });
   }
@@ -704,11 +834,17 @@
         state.token = res.token;
         state.user = res.user;
         state.remember = !!res.remember;
-        saveToken(res.token, state.remember);
+        saveToken(res.token, state.remember, res.user);
         store('cs_remember', rem);
         store('cs_last_user', rem ? u : null);
         state.authDraft = {};
-        afterLogin();
+        if (res.boot) {
+          applyBoot(res.boot);
+          afterLogin();
+        } else {
+          afterLogin();
+          refreshAll();
+        }
       }).catch(function (err) {
         setButtonBusy($('lgBtn'), false, t('login.submit'));
         if ($('lgErr')) {
@@ -854,28 +990,24 @@
     }
     state.view = 'library';
     state.reveal = true;
+    syncBuilderSongs();
     render();
-    refreshSongs();
-    api('listLeaderNames').then(function (names) { state.leaders = names; }).catch(fail);
-    if (can('admin')) {
-      refreshPending();
-    }
-    var ids = state.builder.items.map(function (it) { return it.songId; });
-    if (ids.length) {
-      api('getSongs', ids).then(function (map) {
-        state.builder.items = state.builder.items.filter(function (it) { return map[it.songId]; });
-        state.builder.items.forEach(function (it) {
-          var s = map[it.songId];
-          it.content = s.content;
-          it.title = s.title;
-          it.originalKey = s.originalKey;
-        });
-        saveBuilder();
-        if (state.view === 'builder') {
-          renderBuilder();
-        }
-        renderNav();
-      }).catch(fail);
+  }
+
+  function refreshAll() {
+    return fetchBoot().then(function (data) {
+      applyBoot(data);
+      afterDataChange();
+    }).catch(fail);
+  }
+
+  function afterDataChange() {
+    var builderChanged = syncBuilderSongs();
+    renderNav();
+    if (state.view === 'library') {
+      renderLibraryList();
+    } else if (state.view === 'builder' && builderChanged) {
+      renderBuilder();
     }
   }
 
@@ -895,9 +1027,8 @@
     return api('listSongs').then(function (songs) {
       state.songs = songs;
       state.songsLoaded = true;
-      if (state.view === 'library') {
-        renderLibraryList();
-      }
+      saveCache();
+      afterDataChange();
     }).catch(fail);
   }
 
@@ -988,12 +1119,34 @@
   }
 
   function openSong(id) {
+    var local = findSong(id);
+    if (local && typeof local.content === 'string') {
+      state.current = JSON.parse(JSON.stringify(local));
+      state.viewShift = 0;
+      state.viewAcc = 'auto';
+      show('song');
+      return;
+    }
     api('getSong', id).then(function (song) {
       state.current = song;
       state.viewShift = 0;
       state.viewAcc = 'auto';
       show('song');
     }).catch(fail);
+  }
+
+  function upsertSong(saved) {
+    var existing = findSong(saved.id);
+    var merged = JSON.parse(JSON.stringify(saved));
+    merged.searchText = String(saved.content || '').replace(/\[[^\]]*\]/g, '').replace(/\s+/g, ' ').substring(0, 400);
+    merged.useCount = existing ? existing.useCount : 0;
+    merged.lastUsed = existing ? existing.lastUsed : '';
+    if (existing) {
+      state.songs[state.songs.indexOf(existing)] = merged;
+    } else {
+      state.songs.push(merged);
+    }
+    saveCache();
   }
 
   function accOptions(selected) {
@@ -1052,8 +1205,11 @@
           api('deleteSong', s.id).then(function () {
             toast(t('song.deleted'));
             state.current = null;
-            refreshSongs();
+            state.songs = state.songs.filter(function (x) { return x.id !== s.id; });
+            saveCache();
+            syncBuilderSongs();
             go('library');
+            refreshSongs();
           }).catch(fail);
         });
       };
@@ -1200,9 +1356,10 @@
             it.originalKey = saved.originalKey;
           }
         });
+        saveBuilder();
       }
+      upsertSong(saved);
       show('song');
-      refreshSongs();
     }).catch(function (e) {
       if ($('edSave')) {
         $('edSave').disabled = false;
@@ -1227,7 +1384,7 @@
       toast(t('builder.already'));
       return;
     }
-    api('getSong', songId).then(function (s) {
+    var push = function (s) {
       state.builder.items.push({
         songId: s.id,
         title: s.title,
@@ -1248,7 +1405,13 @@
       if (state.view === 'builder') {
         renderBuilder();
       }
-    }).catch(fail);
+    };
+    var local = findSong(songId);
+    if (local && typeof local.content === 'string') {
+      push(local);
+      return;
+    }
+    api('getSong', songId).then(push).catch(fail);
   }
 
   function renderBuilder() {
@@ -1498,11 +1661,13 @@
       '<div class="sp-16"></div><div class="search">' + ic('magnifying-glass') + '<input type="search" id="hSearch" aria-label="' + esc(t('history.search')) + '" placeholder="' + esc(t('history.search')) + '"></div></div>' +
       '<div class="card"><div id="hList">' + skeleton(4) + '</div></div>';
     $('hSearch').oninput = renderHistoryList;
-    state.setlistsLoaded = false;
+    renderHistoryList();
     api('listSetlists').then(function (list) {
       state.setlists = list;
       state.setlistsLoaded = true;
-      renderHistoryList();
+      if (state.view === 'history') {
+        renderHistoryList();
+      }
     }).catch(fail);
   }
 
@@ -1573,7 +1738,14 @@
     var go2 = function () {
       api('getSetlist', id).then(function (s) {
         var ids = s.items.map(function (it) { return it.songId; });
-        return api('getSongs', ids).then(function (map) {
+        var songsReady = state.songsLoaded ? Promise.resolve(ids.reduce(function (acc, sid) {
+          var local = findSong(sid);
+          if (local) {
+            acc[sid] = local;
+          }
+          return acc;
+        }, {})) : api('getSongs', ids);
+        return songsReady.then(function (map) {
           var date = nextSunday();
           var b = newBuilder();
           b.serviceDate = date;
@@ -1622,16 +1794,23 @@
       $('sBody').innerHTML = '<div class="card">' + skeleton(5) + '</div>';
       loadStats();
     };
+    if (state.stats && state.statsKey === JSON.stringify(state.statsFilter)) {
+      renderStatsBody();
+    }
     loadStats();
   }
 
   function loadStats() {
+    var key = JSON.stringify(state.statsFilter);
     api('getStats', state.statsFilter).then(function (st) {
       state.stats = st;
+      state.statsKey = key;
       if (!state.statsLeader || !st.leaders.some(function (l) { return l.leader === state.statsLeader; })) {
         state.statsLeader = st.leaders.length ? st.leaders[0].leader : '';
       }
-      renderStatsBody();
+      if (state.view === 'stats' && key === JSON.stringify(state.statsFilter)) {
+        renderStatsBody();
+      }
     }).catch(fail);
   }
 
@@ -1923,10 +2102,27 @@
     }
     state.token = saved.token;
     state.remember = saved.remember;
+    var cache = loadCache();
+    if (saved.user && cache) {
+      state.user = saved.user;
+      state.songs = cache.songs;
+      state.songsLoaded = true;
+      state.leaders = cache.leaders || [];
+      afterLogin();
+      fetchBoot().then(function (data) {
+        applyBoot(data);
+        afterDataChange();
+      }).catch(function (e) {
+        if (e.message !== 'SESSION_EXPIRED') {
+          toast(errMsg(e), true);
+        }
+      });
+      return;
+    }
     hideChrome();
     $('view').innerHTML = '<div class="card boot-card">' + skeleton(3) + '</div>';
-    api('getMe').then(function (user) {
-      state.user = user;
+    fetchBoot().then(function (data) {
+      applyBoot(data);
       afterLogin();
     }).catch(function (e) {
       if (state.user || e.message === 'SESSION_EXPIRED') {
@@ -1936,14 +2132,44 @@
     });
   }
 
-  $('menuToggle').onclick = function () { toggleMenu(!state.menuOpen); };
+  function fetchBoot() {
+    return api('bootstrap').catch(function (e) {
+      if (e.message !== 'UNKNOWN_ACTION') {
+        throw e;
+      }
+      return Promise.all([api('getMe'), api('listSongs'), api('listLeaderNames')]).then(function (r) {
+        if (r[0] && ROLE_LEVEL[r[0].role] >= ROLE_LEVEL.admin) {
+          setTimeout(refreshPending, 0);
+        }
+        return { user: r[0], songs: r[1], leaders: r[2], pendingCount: state.pendingCount };
+      });
+    });
+  }
+
+  $('menuToggle').onclick = function () { setSidebar(!state.sidebarOpen, isNarrow() ? 'nav' : null); };
+  $('sbClose').onclick = function () { setSidebar(false, 'toggle'); };
+  $('sbBackdrop').onclick = function () { setSidebar(false); };
+  if (narrowMq) {
+    var onNarrow = function () {
+      if (isNarrow()) {
+        setSidebar(false);
+      } else {
+        setSidebar(load('cs_sidebar') !== false);
+      }
+    };
+    if (narrowMq.addEventListener) {
+      narrowMq.addEventListener('change', onNarrow);
+    } else if (narrowMq.addListener) {
+      narrowMq.addListener(onNarrow);
+    }
+  }
+  setSidebar(state.sidebarOpen);
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') {
       if (modalDismiss) {
         modalDismiss();
-      } else if (state.menuOpen) {
-        toggleMenu(false);
-        $('menuToggle').focus();
+      } else if (isNarrow() && state.sidebarOpen) {
+        setSidebar(false, 'toggle');
       }
     }
   });

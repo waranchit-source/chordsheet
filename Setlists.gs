@@ -27,6 +27,18 @@ function exportPdf_(docId, name) {
   return pdfFile.getId();
 }
 
+function exportAlignedPdf_(docId, name) {
+  var copy = DriveApp.getFileById(docId).makeCopy(safeFileName_(name) + ' (pdf)');
+  try {
+    var doc = DocumentApp.openById(copy.getId());
+    hideSpacesForPdf_(doc.getBody());
+    doc.saveAndClose();
+    return exportPdf_(copy.getId(), name);
+  } finally {
+    copy.setTrashed(true);
+  }
+}
+
 function sanitizeItems_(items) {
   if (!items || !items.length) {
     throw new Error('SETLIST_EMPTY');
@@ -61,9 +73,8 @@ function generateSetlist(token, payload) {
 
   var plan = planLayout_(title, description, items);
   var docName = safeFileName_(serviceDate + ' ' + title);
-  var docId = buildDocument_(docName, plan);
+  var docId = buildDocument_(docName, plan, outputType === 'pdf');
   var docFile = DriveApp.getFileById(docId);
-  docFile.moveTo(getFolder_(PROP_KEYS.DOCS_FOLDER_ID));
 
   var pdfId = '';
   if (outputType === 'pdf') {
@@ -71,6 +82,7 @@ function generateSetlist(token, payload) {
     docFile.setTrashed(true);
     docId = '';
   } else {
+    docFile.moveTo(getFolder_(PROP_KEYS.DOCS_FOLDER_ID));
     shareFile_(docFile, true);
   }
 
@@ -130,7 +142,7 @@ function exportSetlistPdf(token, setlistId) {
     throw new Error('SETLIST_NO_DOC');
   }
   var name = safeFileName_(toDateOnly_(s.ServiceDate) + ' ' + s.Title);
-  var pdfId = exportPdf_(String(s.DocId), name);
+  var pdfId = exportAlignedPdf_(String(s.DocId), name);
   if (s.PdfId) {
     try {
       DriveApp.getFileById(String(s.PdfId)).setTrashed(true);
