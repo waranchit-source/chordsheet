@@ -1,5 +1,5 @@
 function getStats(token, filter) {
-  requireSession_(token);
+  requireSession_(token, 'stats.view');
   filter = filter || {};
   var from = String(filter.from || '');
   var to = String(filter.to || '');

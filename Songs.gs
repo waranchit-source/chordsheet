@@ -41,12 +41,12 @@ function songList_() {
 }
 
 function listSongs(token) {
-  requireSession_(token);
+  requireSession_(token, 'songs.view');
   return songList_();
 }
 
 function getSong(token, songId) {
-  requireSession_(token);
+  requireSession_(token, 'songs.view');
   var s = findBy_(SHEETS.SONGS, 'SongId', songId);
   if (!s || isDeleted_(s.Deleted)) {
     throw new Error('SONG_NOT_FOUND');
@@ -55,7 +55,7 @@ function getSong(token, songId) {
 }
 
 function getSongs(token, songIds) {
-  requireSession_(token);
+  requireSession_(token, 'songs.view');
   var wanted = {};
   (songIds || []).forEach(function (id) { wanted[String(id)] = true; });
   var out = {};
@@ -68,7 +68,7 @@ function getSongs(token, songIds) {
 }
 
 function saveSong(token, data) {
-  var session = requireSession_(token, 'leader');
+  var session = requireSession_(token, 'songs.edit');
   var title = String(data.title || '').trim();
   var content = String(data.content || '').replace(/\r\n/g, '\n');
   if (!title) {
@@ -125,7 +125,7 @@ function saveSong(token, data) {
 }
 
 function deleteSong(token, songId) {
-  var session = requireSession_(token, 'admin');
+  var session = requireSession_(token, 'songs.delete');
   return withLock_(function () {
     var s = findBy_(SHEETS.SONGS, 'SongId', songId);
     if (!s) {

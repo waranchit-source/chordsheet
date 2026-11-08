@@ -4,7 +4,7 @@ Project notes for Claude Code. Read this before changing anything.
 
 ## What this is
 
-Worship team "Lyrics & Chords" system (Thai church). Song library with chord transposing, setlist builder that produces A4 PDF / Google Doc files (2 songs per page), setlist history and usage stats.
+Worship team "Lyrics & Chords" system (Thai church). Song library with chord transposing, setlist builder that produces A4 PDF / Word files (2 songs per page) downloaded to the user's device, setlist history and usage stats.
 
 - **Frontend**: static site in `docs/`, served by GitHub Pages from branch `main`, folder `/docs`.
   Live URL: https://waranchit-source.github.io/chordsheet/ (repo `waranchit-source/chordsheet`, public because the account plan only serves Pages from public repos; the owner approved this on 2026-11-08).
@@ -47,7 +47,11 @@ Browser (docs/*.js)  --fetch POST text/plain JSON-->  Apps Script doPost (Code.g
 - Passwords: salted SHA-256, 200 rounds (`hashPassword_`).
 - Session token: random; cached in CacheService for 6 hours (sliding) as `sess_<token>`.
 - Remember me: `login(username, password, true)` also stores `sha256('session:' + token)` in sheet `Sessions` with a 30 day sliding expiry. On a cache miss `requireSession_` restores the session from that sheet and re-checks the user is approved and active. Client keeps the token in localStorage (remember) or sessionStorage (not remembered).
-- Registration: `register()` creates `Status = pending`, `Active = false`, role viewer. Admin approves or rejects in Users > Requests (`reviewUser`). Rejected usernames can register again. Blank `Status` means approved (legacy rows).
+- Registration: `register()` creates `Status = pending`, `Active = false`, role viewer, `Permissions = []`. Admin approves or rejects in Users > Requests (`reviewUser(token, username, decision, access)`, where `access` is a permission array, or a legacy role string). Rejected usernames can register again. Blank `Status` means approved (legacy rows).
+- Permissions (added 2026-11-09, owner's rule: every switch starts off): `PERMISSIONS` in `Config.gs` = `songs.view`, `songs.edit`, `songs.delete`, `setlist.create`, `history.view`, `setlist.delete`, `stats.view`, `users.manage`. Stored as JSON in the `Users.Permissions` column. `effectivePerms_`: `Role = admin` means all; else the JSON; blank JSON falls back to `ROLE_PERMISSIONS[Role]` so legacy users keep their old access. `normalizePerms_` adds `PERMISSION_NEEDS` (edit, delete and setlist.create need songs.view; setlist.delete needs history.view) and turns `users.manage` into all. `Role` is still written (`roleFromPerms_`) for display and old code.
+- Every server action checks its own permission through `requireSession_(token, perm)`; the frontend only hides what the user cannot do (`VIEW_PERM`, `can()` in `app.js`). New users and users added by admin start with no permissions and only see My account.
+- Permission changes apply on the next request: `saveUser` and `reviewUser` put a new random `perm_version` in the script cache; `requireSession_` reloads the user row when the cached session's `pv` differs. Use a random value, not `Date.now()` (two changes in the same millisecond kept stale permissions in testing). Admins cannot change their own permissions.
+- `saveUser` from the frontend sends both `perms` and a matching `role`: the new backend uses `perms`; the older deployment only knew `role` and would have demoted anyone saved without it.
 - Never nest `withLock_` calls. `deleteSessionsWhere_` does not lock; callers lock.
 - Login lock: 5 failed attempts set `fail_<username>` in the script cache and block that username for 10 minutes, even with the right password. `resetAdminPassword()` (run from the Apps Script editor, no deploy needed) also removes `fail_admin`, so the admin can sign in right away.
 
@@ -65,11 +69,20 @@ Browser (docs/*.js)  --fetch POST text/plain JSON-->  Apps Script doPost (Code.g
 
 - Google Docs throws "Cannot insert an empty text element" for empty strings in `appendParagraph`, `appendTable` cells and similar calls. Never pass `''`: use `docText_()` (turns `''` into `' '`) and `' '` for table cells. Blank lines, empty note lines and empty right columns all hit this (fixed 2026-11-08; the original version failed on every song with a blank line).
 
-### PDF chord alignment (Render.gs, Setlists.gs)
+### Files: download only, nothing kept in Drive (Setlists.gs)
 
-- Google's Docs to PDF converter (both `getAs(PDF)` and Drive export) draws U+0020 and U+00A0 about 1.3 to 1.4 times wider than the Docs editor, while real glyphs keep their exact widths. Verified 2026-11-08 with test documents exported through Drive. Runs of spaces therefore push chords to the right in PDFs only.
-- PDF output: `buildDocument_(name, plan, true)` builds chord lines with `pdfChordText_`: invisible white `.` glyphs (regular weight) as filler before each chord, computed from the exact chord x positions that `buildChordLine_` now returns in `chords`. Spaces inside the paired lyric line become white dots too (`pdfLyricText_`). Word/Doc output keeps real spaces so the owner can edit it.
-- "Create PDF from Doc" (`exportSetlistPdf`) exports a temporary copy after `hideSpacesForPdf_` converts every space run in it to white dots, then trashes the copy.
+- Owner's rule (2026-11-09): PDF/Word files are not stored in the owner's Drive. Each person downloads the file to their own device; the sheet keeps only the log (Setlists row + UsageLog rows).
+- `generateSetlist(token, payload)`: builds a temporary Google Doc (`buildDocument_`), exports it with `exportDocBlob_` from `https://docs.google.com/document/d/<id>/export?format=pdf|docx` via `UrlFetchApp` + `ScriptApp.getOAuthToken()` (retries 429/5xx), then always deletes the doc permanently in `finally` (`deleteDocPermanently_`: Drive v3 `DELETE files/<id>`, falls back to `setTrashed`). Returns `{ setlistId, updated, outputType, pages, file: { name, mimeType, base64 } }`; the client turns `base64` into a Blob and clicks an `<a download>`.
+- Needs the `https://www.googleapis.com/auth/script.external_request` scope in `appsscript.json`. After a scope change the owner must run any function once in the editor and allow it, or the web app fails.
+- `payload.setlistId` updates that history record (same row, UsageLog rows replaced) when the caller created it or has `users.manage`; otherwise a new record is created. The builder keeps `setlistId` in `cs_builder`, so creating the file again (PDF then Word, or after a key change) does not duplicate history. "Finish setlist" in the result clears the builder and opens History.
+- Export failures: PDF falls back to `fallbackPdfBlob_` (the white dot method below via `getAs`), Word throws `EXPORT_FAILED`. Nothing is written to the sheet before the file exists.
+- `setlistToClient_` returns `songs: [{ title, key }]` for the History cards (numbered list with key pills). History shows no file links. `exportSetlistPdf` and the Drive link helpers were removed; `DocId` / `PdfId` columns stay (empty for new rows) and `deleteSetlist` still trashes legacy files.
+- The old Drive folders (`Chord Sheet Files`) are still created by `setup` but no longer used.
+
+### PDF chord alignment (Render.gs)
+
+- Google's Drive conversion (`getAs(PDF)` and Drive export) draws U+0020 and U+00A0 about 1.3 to 1.4 times wider than the Docs editor, so runs of spaces push chords to the right. The Docs export endpoint above (the same as File > Download > PDF in Docs) does not; the owner confirmed Docs' own download lines chords up. That is why PDFs come from the export endpoint and keep real spaces.
+- `hideSpacesForPdf_` (white `.` glyphs instead of space runs) is kept only for the fallback path.
 
 ### Speed
 
@@ -79,7 +92,7 @@ Browser (docs/*.js)  --fetch POST text/plain JSON-->  Apps Script doPost (Code.g
 
 ### Navigation
 
-- All navigation lives in a floating left sidebar (`#sidebar`). The toggle (`#menuToggle`) sits in the sticky top strip next to the page title. `html.sb-open` controls it. At 1024px and wider it pushes the content (state saved in `cs_sidebar`); below that it is an off canvas drawer with backdrop, Escape, close button and staggered links, and it closes after choosing a page.
+- All navigation lives in a floating left sidebar (`#sidebar`). `html.sb-open` controls it. The close button (`#sbClose`) sits inside the sidebar header next to the brand at every size (sidebar icon on desktop, X in the drawer). The open button (`#menuToggle`) sits in the sticky top strip next to the page title and is hidden on desktop while the sidebar is open (`.topstrip-inner` keeps `min-height: 50px` so the strip does not jump). Opening moves focus to `#sbClose` (desktop) or the active link (drawer); closing returns it to `#menuToggle`. At 1024px and wider the sidebar pushes the content (state saved in `cs_sidebar`); below that it is an off canvas drawer with backdrop, Escape and staggered links, and it closes after choosing a page. Nav items only show pages the user has permission for.
 
 ### Mobile
 
@@ -111,7 +124,7 @@ Browser (docs/*.js)  --fetch POST text/plain JSON-->  Apps Script doPost (Code.g
 
 ## Testing
 
-No test suite lives in the repo. Make the mock strict like real Google: `getRange` past the last row must throw, and Docs calls with empty text must throw "Cannot insert an empty text element" (both bugs reached production because an early mock was lenient). To test end to end, run the `.gs` files in Node with mocked Apps Script services (SpreadsheetApp, CacheService, LockService, Utilities, ContentService, HtmlService, DriveApp, DocumentApp, PropertiesService) inside a `vm` context, serve `docs/` over HTTP with `/config.js` overridden to `API_URL: '/api'`, and route `POST /api` to `doPost`. Then drive the UI in a browser. Also unit test `docs/chords.js` round trips (`toEditable` then `fromEditable` must return the stored content unchanged).
+No test suite lives in the repo. Make the mock strict like real Google: `getRange` past the last row must throw, and Docs calls with empty text must throw "Cannot insert an empty text element" (both bugs reached production because an early mock was lenient). To test end to end, run the `.gs` files in Node with mocked Apps Script services (SpreadsheetApp, CacheService including `getAll`, LockService, Utilities, ContentService, HtmlService, DriveApp, DocumentApp, PropertiesService, UrlFetchApp for the Docs export and Drive v3 delete URLs with injectable failure codes, ScriptApp.getOAuthToken) inside a `vm` context, serve `docs/` over HTTP with `/config.js` overridden to `API_URL: '/api'`, and route `POST /api` to `doPost`. Then drive the UI in a browser (stub `HTMLAnchorElement.prototype.click` for `[download]` anchors to check downloads without saving files). Also run the new frontend against the previously deployed `.gs` version (the frontend goes live before the owner redeploys). Also unit test `docs/chords.js` round trips (`toEditable` then `fromEditable` must return the stored content unchanged).
 
 ## Sheet grid limits
 

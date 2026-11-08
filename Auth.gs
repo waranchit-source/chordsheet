@@ -41,7 +41,71 @@ function validatePassword_(password) {
   }
 }
 
-function createUserRecord_(username, displayName, password, role, status) {
+function normalizePerms_(list) {
+  var set = {};
+  (Array.isArray(list) ? list : []).forEach(function (p) {
+    if (PERMISSIONS.indexOf(p) >= 0) {
+      set[p] = true;
+    }
+  });
+  Object.keys(PERMISSION_NEEDS).forEach(function (p) {
+    if (set[p]) {
+      PERMISSION_NEEDS[p].forEach(function (need) { set[need] = true; });
+    }
+  });
+  if (set['users.manage']) {
+    return PERMISSIONS.slice();
+  }
+  return PERMISSIONS.filter(function (p) { return set[p]; });
+}
+
+function effectivePerms_(user) {
+  var role = String(user.Role || 'viewer');
+  if (role === 'admin') {
+    return PERMISSIONS.slice();
+  }
+  var raw = String(user.Permissions || '').trim();
+  if (raw) {
+    try {
+      return normalizePerms_(JSON.parse(raw));
+    } catch (e) {
+    }
+  }
+  return (ROLE_PERMISSIONS[role] || []).slice();
+}
+
+function roleFromPerms_(perms) {
+  if (perms.indexOf('users.manage') >= 0) {
+    return 'admin';
+  }
+  if (perms.indexOf('setlist.create') >= 0) {
+    return 'leader';
+  }
+  return 'viewer';
+}
+
+function hasPerm_(session, perm) {
+  return !!session && Array.isArray(session.perms) && session.perms.indexOf(perm) >= 0;
+}
+
+function sessionFor_(user, uname) {
+  return {
+    username: uname,
+    displayName: String(user.DisplayName || uname),
+    role: String(user.Role || 'viewer'),
+    perms: effectivePerms_(user)
+  };
+}
+
+function permVersion_(cache) {
+  return String(cache.get(PERM_VERSION_KEY) || '0');
+}
+
+function bumpPermVersion_() {
+  CacheService.getScriptCache().put(PERM_VERSION_KEY, Utilities.getUuid(), SESSION_TTL_SECONDS);
+}
+
+function createUserRecord_(username, displayName, password, role, status, perms) {
   var salt = generateSalt_();
   var st = status || USER_STATUS.APPROVED;
   appendRow_(SHEETS.USERS, {
@@ -54,7 +118,8 @@ function createUserRecord_(username, displayName, password, role, status) {
     CreatedAt: new Date(),
     Status: st,
     ReviewedBy: '',
-    ReviewedAt: ''
+    ReviewedAt: '',
+    Permissions: Array.isArray(perms) ? JSON.stringify(perms) : ''
   });
 }
 
@@ -118,8 +183,7 @@ function restoreRememberedSession_(token) {
       updateRow_(SHEETS.SESSIONS, fresh._row, fresh);
     }
   });
-  var uname = String(row.Username);
-  return { username: uname, displayName: String(user.DisplayName || uname), role: String(user.Role || 'viewer') };
+  return sessionFor_(user, String(row.Username));
 }
 
 function login(username, password, remember) {
@@ -148,7 +212,8 @@ function login(username, password, remember) {
   }
   cache.remove(failKey);
   var token = Utilities.getUuid() + Utilities.getUuid().replace(/-/g, '');
-  var session = { username: uname, displayName: String(user.DisplayName || uname), role: String(user.Role || 'viewer') };
+  var session = sessionFor_(user, uname);
+  session.pv = permVersion_(cache);
   cache.put('sess_' + token, JSON.stringify(session), SESSION_TTL_SECONDS);
   var keep = remember === true;
   if (keep) {
@@ -159,8 +224,8 @@ function login(username, password, remember) {
 
 function bootData_(session) {
   var users = readTable_(SHEETS.USERS);
-  var data = { songs: songList_(), leaders: leaderNames_(users), pendingCount: 0 };
-  if ((ROLES[session.role] || 0) >= ROLES.admin) {
+  var data = { songs: hasPerm_(session, 'songs.view') ? songList_() : [], leaders: leaderNames_(users), pendingCount: 0 };
+  if (hasPerm_(session, 'users.manage')) {
     data.pendingCount = users.filter(function (u) { return userStatus_(u) === USER_STATUS.PENDING; }).length;
   }
   return data;
@@ -200,9 +265,10 @@ function register(username, displayName, password) {
       existing.Status = USER_STATUS.PENDING;
       existing.ReviewedBy = '';
       existing.ReviewedAt = '';
+      existing.Permissions = '[]';
       updateRow_(SHEETS.USERS, existing._row, existing);
     } else {
-      createUserRecord_(uname, name, String(password), 'viewer', USER_STATUS.PENDING);
+      createUserRecord_(uname, name, String(password), 'viewer', USER_STATUS.PENDING, []);
     }
     return { username: uname, status: USER_STATUS.PENDING };
   });
@@ -220,24 +286,33 @@ function logout(token) {
   return true;
 }
 
-function requireSession_(token, minRole) {
+function requireSession_(token, perm) {
   if (!token || !isValidTokenFormat_(token)) {
     throw new Error('SESSION_EXPIRED');
   }
   var cache = CacheService.getScriptCache();
-  var raw = cache.get('sess_' + token);
-  if (!raw) {
-    var restored = restoreRememberedSession_(token);
-    if (!restored) {
+  var key = 'sess_' + token;
+  var got = cache.getAll([key, PERM_VERSION_KEY]);
+  var pv = String(got[PERM_VERSION_KEY] || '0');
+  var session = got[key] ? JSON.parse(got[key]) : null;
+  if (!session) {
+    session = restoreRememberedSession_(token);
+    if (!session) {
       throw new Error('SESSION_EXPIRED');
     }
-    raw = JSON.stringify(restored);
+  } else if (session.pv !== pv || !Array.isArray(session.perms)) {
+    var user = findBy_(SHEETS.USERS, 'Username', session.username);
+    if (!user || userStatus_(user) !== USER_STATUS.APPROVED || !isActive_(user.Active)) {
+      cache.remove(key);
+      throw new Error('SESSION_EXPIRED');
+    }
+    session = sessionFor_(user, session.username);
   }
-  var session = JSON.parse(raw);
-  if (minRole && (ROLES[session.role] || 0) < ROLES[minRole]) {
+  session.pv = pv;
+  cache.put(key, JSON.stringify(session), SESSION_TTL_SECONDS);
+  if (perm && !hasPerm_(session, perm)) {
     throw new Error('FORBIDDEN');
   }
-  cache.put('sess_' + token, raw, SESSION_TTL_SECONDS);
   return session;
 }
 
@@ -262,7 +337,7 @@ function changeMyPassword(token, oldPassword, newPassword) {
 }
 
 function listUsers(token) {
-  requireSession_(token, 'admin');
+  requireSession_(token, 'users.manage');
   return readTable_(SHEETS.USERS).map(function (u) {
     return {
       username: String(u.Username),
@@ -270,6 +345,7 @@ function listUsers(token) {
       role: String(u.Role),
       active: isActive_(u.Active),
       status: userStatus_(u),
+      perms: effectivePerms_(u),
       createdAt: toIso_(u.CreatedAt),
       reviewedBy: String(u.ReviewedBy || ''),
       reviewedAt: toIso_(u.ReviewedAt)
@@ -285,7 +361,7 @@ function listLeaderNames(token) {
 function leaderNames_(users) {
   var names = {};
   (users || readTable_(SHEETS.USERS)).forEach(function (u) {
-    if (isActive_(u.Active) && (String(u.Role) === 'leader' || String(u.Role) === 'admin')) {
+    if (isActive_(u.Active) && userStatus_(u) === USER_STATUS.APPROVED && effectivePerms_(u).indexOf('setlist.create') >= 0) {
       names[String(u.DisplayName || u.Username)] = true;
     }
   });
@@ -297,22 +373,37 @@ function leaderNames_(users) {
   return Object.keys(names).sort();
 }
 
+function permsFromRequest_(data) {
+  if (Array.isArray(data.perms)) {
+    return normalizePerms_(data.perms);
+  }
+  if (data.role && ROLE_PERMISSIONS[data.role]) {
+    return ROLE_PERMISSIONS[data.role].slice();
+  }
+  return null;
+}
+
 function saveUser(token, data) {
-  requireSession_(token, 'admin');
+  var session = requireSession_(token, 'users.manage');
   var uname = normalizeUsername_(data.username);
   validateUsername_(uname);
-  var role = ROLES[data.role] ? data.role : 'viewer';
   var displayName = String(data.displayName || '').trim() || uname;
-  return withLock_(function () {
+  var perms = permsFromRequest_(data);
+  var result = withLock_(function () {
     var user = findBy_(SHEETS.USERS, 'Username', uname);
     if (!user) {
       validatePassword_(data.password);
-      createUserRecord_(uname, displayName, data.password, role, USER_STATUS.APPROVED);
+      var newPerms = perms || [];
+      createUserRecord_(uname, displayName, data.password, roleFromPerms_(newPerms), USER_STATUS.APPROVED, newPerms);
       return true;
     }
+    var self = uname === session.username;
     user.DisplayName = displayName;
-    user.Role = role;
-    user.Active = data.active !== false;
+    user.Active = self ? true : data.active !== false;
+    if (perms && !self) {
+      user.Permissions = JSON.stringify(perms);
+      user.Role = roleFromPerms_(perms);
+    }
     if (data.password) {
       validatePassword_(data.password);
       var salt = generateSalt_();
@@ -320,15 +411,17 @@ function saveUser(token, data) {
       user.PasswordHash = hashPassword_(data.password, salt);
     }
     updateRow_(SHEETS.USERS, user._row, user);
-    if (!user.Active || data.password) {
+    if (!isActive_(user.Active) || data.password) {
       deleteSessionsWhere_(function (r) { return String(r.Username) === uname; });
     }
     return true;
   });
+  bumpPermVersion_();
+  return result;
 }
 
-function reviewUser(token, username, decision, role) {
-  var session = requireSession_(token, 'admin');
+function reviewUser(token, username, decision, access) {
+  var session = requireSession_(token, 'users.manage');
   var uname = normalizeUsername_(username);
   if (decision !== 'approve' && decision !== 'reject') {
     throw new Error('BAD_REQUEST');
@@ -336,7 +429,7 @@ function reviewUser(token, username, decision, role) {
   if (uname === session.username) {
     throw new Error('CANNOT_REVIEW_SELF');
   }
-  return withLock_(function () {
+  var result = withLock_(function () {
     var user = findBy_(SHEETS.USERS, 'Username', uname);
     if (!user) {
       throw new Error('USER_NOT_FOUND');
@@ -346,7 +439,9 @@ function reviewUser(token, username, decision, role) {
     if (decision === 'approve') {
       user.Status = USER_STATUS.APPROVED;
       user.Active = true;
-      user.Role = ROLES[role] ? role : (ROLES[String(user.Role)] ? String(user.Role) : 'viewer');
+      var perms = Array.isArray(access) ? normalizePerms_(access) : (ROLE_PERMISSIONS[access] ? ROLE_PERMISSIONS[access].slice() : []);
+      user.Permissions = JSON.stringify(perms);
+      user.Role = roleFromPerms_(perms);
     } else {
       user.Status = USER_STATUS.REJECTED;
       user.Active = false;
@@ -357,4 +452,6 @@ function reviewUser(token, username, decision, role) {
     }
     return true;
   });
+  bumpPermVersion_();
+  return result;
 }

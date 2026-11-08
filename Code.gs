@@ -66,7 +66,6 @@ function apiRoutes_() {
     saveSong: { fn: saveSong, auth: true },
     deleteSong: { fn: deleteSong, auth: true },
     generateSetlist: { fn: generateSetlist, auth: true },
-    exportSetlistPdf: { fn: exportSetlistPdf, auth: true },
     listSetlists: { fn: listSetlists, auth: true },
     getSetlist: { fn: getSetlist, auth: true },
     deleteSetlist: { fn: deleteSetlist, auth: true },

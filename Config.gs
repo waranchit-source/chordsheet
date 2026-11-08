@@ -11,7 +11,7 @@ var SHEETS = {
 };
 
 var HEADERS = {
-  Users: ['Username', 'DisplayName', 'PasswordHash', 'Salt', 'Role', 'Active', 'CreatedAt', 'Status', 'ReviewedBy', 'ReviewedAt'],
+  Users: ['Username', 'DisplayName', 'PasswordHash', 'Salt', 'Role', 'Active', 'CreatedAt', 'Status', 'ReviewedBy', 'ReviewedAt', 'Permissions'],
   Songs: ['SongId', 'Title', 'Artist', 'OriginalKey', 'Content', 'DefaultLayout', 'Tags', 'CreatedBy', 'CreatedAt', 'UpdatedBy', 'UpdatedAt', 'Deleted'],
   Setlists: ['SetlistId', 'Title', 'ServiceDate', 'Leader', 'Description', 'OutputType', 'DocId', 'PdfId', 'ItemsJson', 'CreatedBy', 'CreatedAt'],
   UsageLog: ['Timestamp', 'SetlistId', 'ServiceDate', 'Leader', 'SongId', 'SongTitle', 'Key', 'Shift'],
@@ -22,6 +22,21 @@ var ROLES = {
   admin: 3,
   leader: 2,
   viewer: 1
+};
+
+var PERMISSIONS = ['songs.view', 'songs.edit', 'songs.delete', 'setlist.create', 'history.view', 'setlist.delete', 'stats.view', 'users.manage'];
+
+var PERMISSION_NEEDS = {
+  'songs.edit': ['songs.view'],
+  'songs.delete': ['songs.view'],
+  'setlist.create': ['songs.view'],
+  'setlist.delete': ['history.view']
+};
+
+var ROLE_PERMISSIONS = {
+  viewer: ['songs.view', 'history.view', 'stats.view'],
+  leader: ['songs.view', 'songs.edit', 'setlist.create', 'history.view', 'stats.view'],
+  admin: PERMISSIONS
 };
 
 var USER_STATUS = {
@@ -49,7 +64,8 @@ var LOGIN_MAX_FAILS = 5;
 var LOGIN_LOCK_SECONDS = 600;
 var REGISTER_MAX_PER_WINDOW = 20;
 var REGISTER_WINDOW_SECONDS = 600;
-var SCHEMA_VERSION = 'schema_v2';
+var SCHEMA_VERSION = 'schema_v3';
+var PERM_VERSION_KEY = 'perm_version';
 var HASH_ROUNDS = 200;
 
 var LAYOUT = {

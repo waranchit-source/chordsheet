@@ -10,8 +10,9 @@
     en: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
   };
   var KEY_OPTIONS = C.MAJOR_KEY_NAMES.concat(['C#', 'Gb', 'Cb']).concat(C.MINOR_KEY_NAMES).concat(['D#m', 'Abm', 'A#m']);
-  var ROLE_LEVEL = { viewer: 1, leader: 2, admin: 3 };
-  var ROLES = ['viewer', 'leader', 'admin'];
+  var PERMS = ['songs.view', 'songs.edit', 'songs.delete', 'setlist.create', 'history.view', 'setlist.delete', 'stats.view', 'users.manage'];
+  var PERM_NEEDS = { 'songs.edit': ['songs.view'], 'songs.delete': ['songs.view'], 'setlist.create': ['songs.view'], 'setlist.delete': ['history.view'] };
+  var ROLE_PERMS = { viewer: ['songs.view', 'history.view', 'stats.view'], leader: ['songs.view', 'songs.edit', 'setlist.create', 'history.view', 'stats.view'], admin: PERMS };
   var LAYOUTS = ['auto', 'half', 'full'];
   var ACCS = ['auto', 'sharp', 'flat'];
   var USERNAME_RE = /^[a-z0-9._-]{3,30}$/;
@@ -233,6 +234,8 @@
       if (first) {
         first.focus();
       }
+    } else if (focusTarget === 'close' && state.sidebarOpen) {
+      $('sbClose').focus();
     } else if (focusTarget === 'toggle') {
       toggle.focus();
     }
@@ -258,10 +261,6 @@
 
   function btnLabel(icon, label) {
     return (icon ? ic(icon) : '') + '<span>' + esc(label) + '</span>';
-  }
-
-  function roleLabel(r) {
-    return L.has('role.' + r) ? t('role.' + r) : r;
   }
 
   function tCount(key, n) {
@@ -390,8 +389,63 @@
     }
   }
 
+  function userPerms(user) {
+    if (!user) {
+      return [];
+    }
+    if (Array.isArray(user.perms)) {
+      return user.perms;
+    }
+    return ROLE_PERMS[user.role] || [];
+  }
+
+  function roleForPerms(perms) {
+    if (perms.indexOf('users.manage') >= 0) {
+      return 'admin';
+    }
+    return perms.indexOf('setlist.create') >= 0 ? 'leader' : 'viewer';
+  }
+
+  function samePerms(a, b) {
+    return a.length === b.length && a.every(function (p) { return b.indexOf(p) >= 0; });
+  }
+
+  function accessLabel(user) {
+    var p = userPerms(user);
+    if (p.indexOf('users.manage') >= 0) {
+      return t('role.admin');
+    }
+    if (!p.length) {
+      return t('role.none');
+    }
+    if (samePerms(p, ROLE_PERMS.leader)) {
+      return t('role.leader');
+    }
+    if (samePerms(p, ROLE_PERMS.viewer)) {
+      return t('role.viewer');
+    }
+    return t('role.custom');
+  }
+
+  var VIEW_PERM = { library: 'songs.view', song: 'songs.view', editor: 'songs.edit', builder: 'setlist.create', history: 'history.view', stats: 'stats.view', users: 'users.manage', account: '' };
+
+  function viewAllowed(view) {
+    var need = VIEW_PERM[view];
+    return need === '' || (need !== undefined && can(need));
+  }
+
+  function firstView() {
+    var order = ['library', 'builder', 'history', 'stats', 'users'];
+    for (var i = 0; i < order.length; i++) {
+      if (viewAllowed(order[i])) {
+        return order[i];
+      }
+    }
+    return 'account';
+  }
+
   function can(role) {
-    return state.user && (ROLE_LEVEL[state.user.role] || 0) >= ROLE_LEVEL[role];
+    return userPerms(state.user).indexOf(role) >= 0;
   }
 
   function pad2(n) {
@@ -485,6 +539,7 @@
     $('menuToggle').setAttribute('aria-label', t(state.sidebarOpen ? 'nav.closeMenu' : 'nav.openMenu'));
     $('menuToggle').setAttribute('title', t(state.sidebarOpen ? 'nav.closeMenu' : 'nav.openMenu'));
     $('sbClose').setAttribute('aria-label', t('nav.closeMenu'));
+    $('sbClose').setAttribute('title', t('nav.closeMenu'));
   }
 
   function prefButtons() {
@@ -555,11 +610,11 @@
   function navItems() {
     var count = state.builder && state.builder.items.length ? state.builder.items.length : 0;
     return [
-      ['library', 'music-notes', t('nav.library')],
-      ['builder', 'playlist', t('nav.builder') + (count ? ' (' + count + ')' : ''), 'leader'],
-      ['history', 'clock-counter-clockwise', t('nav.history')],
-      ['stats', 'chart-bar', t('nav.stats')],
-      ['users', 'users', t('nav.users'), 'admin'],
+      ['library', 'music-notes', t('nav.library'), 'songs.view'],
+      ['builder', 'playlist', t('nav.builder') + (count ? ' (' + count + ')' : ''), 'setlist.create'],
+      ['history', 'clock-counter-clockwise', t('nav.history'), 'history.view'],
+      ['stats', 'chart-bar', t('nav.stats'), 'stats.view'],
+      ['users', 'users', t('nav.users'), 'users.manage'],
       ['account', 'user-circle', t('nav.account')]
     ].filter(function (i) { return !i[3] || can(i[3]); });
   }
@@ -580,7 +635,7 @@
     }
     var items = navItems();
     var n = items.length;
-    var who = esc(state.user.displayName) + ' · ' + esc(roleLabel(state.user.role));
+    var who = esc(state.user.displayName) + ' · ' + esc(accessLabel(state.user));
     $('nav').innerHTML = items.map(function (i, idx) { return navButton(i, idx); }).join('');
     $('navTools').innerHTML = '<div class="sb-sep" style="--i:' + n + '"></div>' +
       '<div class="sb-prefs" style="--i:' + (n + 1) + '">' + prefButtons() + '</div>' +
@@ -634,6 +689,9 @@
     }
     document.body.classList.toggle('has-dock', state.view === 'song');
     renderNav();
+    if (!viewAllowed(state.view)) {
+      state.view = firstView();
+    }
     var v = state.view;
     if (v === 'library') { renderLibrary(); }
     else if (v === 'song') { renderSong(); }
@@ -988,7 +1046,7 @@
     if (!state.builder.leader) {
       state.builder.leader = state.user.displayName;
     }
-    state.view = 'library';
+    state.view = firstView();
     state.reveal = true;
     syncBuilderSongs();
     render();
@@ -1002,6 +1060,10 @@
   }
 
   function afterDataChange() {
+    if (!viewAllowed(state.view)) {
+      show(firstView());
+      return;
+    }
     var builderChanged = syncBuilderSongs();
     renderNav();
     if (state.view === 'library') {
@@ -1044,7 +1106,7 @@
     $('view').innerHTML =
       '<div class="card">' +
       '<div class="row"><div class="grow"><h1 class="heading-5">' + esc(t('library.title')) + '</h1><div class="caption-2 muted" id="libCount"></div></div>' +
-      (can('leader') ? '<button type="button" class="btn primary" id="btnNewSong">' + btnLabel('plus', t('library.add')) + '</button>' : '') +
+      (can('songs.edit') ? '<button type="button" class="btn primary" id="btnNewSong">' + btnLabel('plus', t('library.add')) + '</button>' : '') +
       '</div><div class="sp-16"></div>' +
       '<div class="row"><div class="search grow">' + ic('magnifying-glass') + '<input type="search" id="libSearch" aria-label="' + esc(t('library.search')) + '" placeholder="' + esc(t('library.search')) + '" value="' + esc(state.search) + '"></div>' +
       '<select id="libSort" class="auto" aria-label="' + esc(t('library.sortLabel')) + '">' +
@@ -1083,8 +1145,8 @@
     var list = sortedSongs();
     $('libCount').textContent = tCount('library.count', state.songs.length) + (state.search ? t('library.found', { n: list.length }) : '');
     if (!state.songs.length) {
-      el.innerHTML = emptyState('music-notes', t('library.emptyTitle'), can('leader') ? t('library.emptyText') : t('library.emptyTextViewer'),
-        can('leader') ? '<button type="button" class="btn primary" id="emptyAdd">' + btnLabel('plus', t('library.add')) + '</button>' : '');
+      el.innerHTML = emptyState('music-notes', t('library.emptyTitle'), can('songs.edit') ? t('library.emptyText') : t('library.emptyTextViewer'),
+        can('songs.edit') ? '<button type="button" class="btn primary" id="emptyAdd">' + btnLabel('plus', t('library.add')) + '</button>' : '');
       if ($('emptyAdd')) {
         $('emptyAdd').onclick = function () { openEditor(null); };
       }
@@ -1107,7 +1169,7 @@
           '<td data-label="' + esc(t('library.colUses')) + '">' + esc(tCount('library.times', s.useCount)) + '</td>' +
           '<td data-label="' + esc(t('library.colLast')) + '">' + (s.lastUsed ? esc(shortDate(s.lastUsed)) : '<span class="muted">-</span>') + '</td>' +
           '<td class="cell-actions">' +
-          (can('leader') ? '<button type="button" class="btn sm" data-add="' + esc(s.id) + '"' + (inBuilder[s.id] ? ' disabled' : '') + '>' + (inBuilder[s.id] ? btnLabel('check', t('library.inSet')) : btnLabel('plus', t('library.addToSet'))) + '</button>' : '') +
+          (can('setlist.create') ? '<button type="button" class="btn sm" data-add="' + esc(s.id) + '"' + (inBuilder[s.id] ? ' disabled' : '') + '>' + (inBuilder[s.id] ? btnLabel('check', t('library.inSet')) : btnLabel('plus', t('library.addToSet'))) + '</button>' : '') +
           '</td></tr>';
       }).join('') + '</tbody></table>';
     each(el, '[data-open]', function (b) {
@@ -1168,9 +1230,9 @@
       '<div class="row"><div class="grow"><h1 class="heading-5">' + esc(s.title) + '</h1>' +
       '<div class="caption-2 muted">' + (s.artist ? esc(s.artist) + ' · ' : '') + esc(t('song.originalKey', { key: s.originalKey || '-' })) + ' · ' + esc(t('song.lastEditedBy', { name: s.updatedBy || '-' })) + '</div></div>' +
       '<div class="row">' +
-      (can('leader') ? '<button type="button" class="btn" id="btnEdit">' + btnLabel('pencil-simple', t('common.edit')) + '</button>' : '') +
-      (can('admin') ? '<button type="button" class="btn danger" id="btnDel">' + btnLabel('trash', t('common.delete')) + '</button>' : '') +
-      (can('leader') ? '<button type="button" class="btn primary" id="btnAdd">' + btnLabel('list-plus', t('song.addToSet')) + '</button>' : '') +
+      (can('songs.edit') ? '<button type="button" class="btn" id="btnEdit">' + btnLabel('pencil-simple', t('common.edit')) + '</button>' : '') +
+      (can('songs.delete') ? '<button type="button" class="btn danger" id="btnDel">' + btnLabel('trash', t('common.delete')) + '</button>' : '') +
+      (can('setlist.create') ? '<button type="button" class="btn primary" id="btnAdd">' + btnLabel('list-plus', t('song.addToSet')) + '</button>' : '') +
       '</div></div><div class="sp-16"></div>' +
       '<div class="row song-tools">' +
       '<div class="song-dock" id="songDock">' +
@@ -1437,7 +1499,8 @@
       '<label class="check"><input type="radio" name="bOut" value="doc"' + (effectiveDoc ? ' checked' : '') + '><span>' + ic('file-doc') + ' ' + esc(t('builder.doc')) + '</span></label>' +
       '</div>' +
       (hasNotes ? '<p class="caption-2 muted">' + esc(t('builder.hasNotes')) + '</p>' : '') +
-      '<div class="sp-16"></div><button type="button" class="btn primary" id="bGen"' + (b.items.length ? '' : ' disabled') + '>' + btnLabel('file-pdf', t('builder.generate')) + '</button>' +
+      '<div class="sp-16"></div><button type="button" class="btn primary" id="bGen"' + (b.items.length ? '' : ' disabled') + '>' + btnLabel('download-simple', t('builder.generate')) + '</button>' +
+      '<div id="bSaved">' + savedNote() + '</div>' +
       '<div id="bResult" aria-live="polite"></div></div>';
 
     $('bDate').onchange = function () {
@@ -1571,6 +1634,74 @@
     });
   }
 
+  function savedNote() {
+    var b = state.builder;
+    if (!b || !b.setlistId) {
+      return '';
+    }
+    return '<div class="sp-12"></div><p class="note-line caption-2">' + ic('info') + '<span>' + esc(t('builder.updateNote')) + '</span></p>';
+  }
+
+  function base64ToBlob(b64, type) {
+    var bin = atob(b64);
+    var bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) {
+      bytes[i] = bin.charCodeAt(i);
+    }
+    return new Blob([bytes], { type: type });
+  }
+
+  function saveFile(file) {
+    if (!file || (!file.blob && !file.base64)) {
+      return false;
+    }
+    if (!file.blob) {
+      file.blob = base64ToBlob(file.base64, file.mimeType || 'application/octet-stream');
+      delete file.base64;
+    }
+    var url = URL.createObjectURL(file.blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = file.name || 'setlist';
+    a.rel = 'noopener';
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () {
+      if (a.parentNode) {
+        a.parentNode.removeChild(a);
+      }
+      URL.revokeObjectURL(url);
+    }, 60000);
+    return true;
+  }
+
+  function sortSetlists(list) {
+    return list.sort(function (a, b) {
+      return (String(b.serviceDate) + String(b.createdAt)).localeCompare(String(a.serviceDate) + String(a.createdAt));
+    });
+  }
+
+  function rememberSetlist(id, payload, outputType) {
+    if (!state.setlistsLoaded || !id) {
+      return;
+    }
+    var old = state.setlists.filter(function (s) { return s.id === id; })[0];
+    var rec = {
+      id: id,
+      title: payload.title,
+      serviceDate: payload.serviceDate,
+      leader: payload.leader || (state.user ? state.user.displayName : ''),
+      description: payload.description,
+      outputType: outputType,
+      createdBy: old ? old.createdBy : (state.user ? state.user.displayName : ''),
+      createdAt: old ? old.createdAt : new Date().toISOString(),
+      songTitles: payload.items.map(function (it) { return it.title; }),
+      songs: payload.items.map(function (it) { return { title: it.title, key: it.key }; })
+    };
+    state.setlists = sortSetlists(state.setlists.filter(function (s) { return s.id !== id; }).concat([rec]));
+  }
+
   function generate() {
     var b = state.builder;
     if (b.items.some(function (it) { return !it.content; })) {
@@ -1581,16 +1712,32 @@
       var p = C.prepareForOutput(it, it.shift, it.accidental);
       return { songId: it.songId, title: it.title, key: p.key, shift: it.shift, accidental: it.accidental, layout: it.layout, note: it.note || '', content: p.content };
     });
-    var payload = { title: b.title, serviceDate: b.serviceDate, leader: b.leader, description: b.description, outputType: b.outputType, items: items };
+    var payload = { setlistId: b.setlistId || '', title: b.title, serviceDate: b.serviceDate, leader: b.leader, description: b.description, outputType: b.outputType, items: items };
     $('bGen').disabled = true;
     $('bResult').innerHTML = '<div class="sp-12"></div><div class="progress-note">' + ic('hourglass-medium') + '<span class="body-6">' + esc(t('builder.generating')) + '</span></div>';
     api('generateSetlist', payload).then(function (res) {
-      state.lastResult = res;
+      var current = state.builder === b;
+      if (current && res && res.setlistId) {
+        b.setlistId = res.setlistId;
+        saveBuilder();
+      }
+      rememberSetlist(res && res.setlistId, payload, res && res.outputType);
+      if (res && res.file) {
+        saveFile(res.file);
+      }
+      if (current) {
+        state.lastResult = res;
+      }
       if ($('bGen')) {
         $('bGen').disabled = false;
       }
-      renderResult(res);
-      toast(t('builder.done'));
+      if ($('bSaved')) {
+        $('bSaved').innerHTML = savedNote();
+      }
+      if (current) {
+        renderResult(res);
+      }
+      toast(t(res && res.updated ? 'builder.doneUpdated' : 'builder.done'));
       refreshSongs();
       api('listLeaderNames').then(function (names) { state.leaders = names; }).catch(function () {});
     }).catch(function (e) {
@@ -1599,23 +1746,23 @@
       }
       if ($('bResult')) {
         $('bResult').innerHTML = '';
+        if (state.lastResult && state.builder === b) {
+          renderResult(state.lastResult);
+        }
       }
       fail(e);
     });
   }
 
-  function linkButtons(r, small) {
-    var cls = small ? 'btn sm' : 'btn';
+  function legacyLinks(r) {
     var out = [];
     if (r.docUrl) {
-      out.push('<a class="' + cls + (small ? '' : ' primary') + '" target="_blank" rel="noopener" href="' + esc(r.docUrl) + '">' + btnLabel('file-doc', t('result.openDoc')) + '</a>');
-      out.push('<a class="' + cls + '" target="_blank" rel="noopener" href="' + esc(r.docxUrl) + '">' + btnLabel('download-simple', t('result.docx')) + '</a>');
+      out.push('<a class="btn" target="_blank" rel="noopener" href="' + esc(r.docUrl) + '">' + btnLabel('file-doc', t('result.openDoc')) + '</a>');
     }
     if (r.pdfUrl) {
-      out.push('<a class="' + cls + (r.docUrl || small ? '' : ' primary') + '" target="_blank" rel="noopener" href="' + esc(r.pdfUrl) + '">' + btnLabel('file-pdf', t('result.openPdf')) + '</a>');
-      out.push('<a class="' + cls + '" target="_blank" rel="noopener" href="' + esc(r.pdfDownloadUrl) + '">' + btnLabel('download-simple', t('result.downloadPdf')) + '</a>');
+      out.push('<a class="btn" target="_blank" rel="noopener" href="' + esc(r.pdfUrl) + '">' + btnLabel('file-pdf', t('result.openPdf')) + '</a>');
     }
-    return out.join('');
+    return out.length ? '<div class="result-links">' + out.join('') + '</div>' : '';
   }
 
   function pageSongLabel(s) {
@@ -1625,41 +1772,44 @@
     return s.title + ' · ' + (L.has('reason.' + s.reason) ? t('reason.' + s.reason) : s.reason);
   }
 
+  function finishSetlist() {
+    state.builder = newBuilder();
+    state.lastResult = null;
+    state.pickerQuery = '';
+    saveBuilder();
+    toast(t('builder.finished'));
+    go(viewAllowed('history') ? 'history' : 'builder');
+  }
+
   function renderResult(r) {
     var el = $('bResult');
     if (!el) {
       return;
     }
+    var isDoc = r.outputType === 'doc';
+    var hasFile = !!(r.file && (r.file.blob || r.file.base64));
     el.innerHTML = '<div class="sp-16"></div><div class="result">' +
-      '<div class="row result-head">' + ic('check-circle') + '<span class="title-3">' + esc(t('result.done')) + '</span><span class="caption-2 muted">' + esc(r.outputType === 'doc' ? 'Word / Google Doc' : 'PDF') + '</span></div>' +
-      '<div class="result-links">' + linkButtons(r, false) +
-      (r.docUrl ? '<button type="button" class="btn" id="rPdf">' + btnLabel('file-pdf', t('result.makePdf')) + '</button>' : '') + '</div>' +
-      '<div class="sp-8"></div>' + (r.pages || []).map(function (p) {
+      '<div class="row result-head">' + ic('check-circle') + '<span class="title-3 grow">' + esc(t(hasFile ? (r.updated ? 'result.updated' : 'result.done') : 'result.created')) + '</span><span class="pill gray">' + ic(isDoc ? 'file-doc' : 'file-pdf') + esc(isDoc ? t('result.typeDoc') : 'PDF') + '</span></div>' +
+      (hasFile ?
+        '<div class="sp-12"></div><div class="result-file">' + ic(isDoc ? 'file-doc' : 'file-pdf') + '<div class="result-file-text"><span class="title-4">' + esc(r.file.name) + '</span><span class="caption-2 muted">' + esc(t('result.downloaded')) + '</span></div>' +
+        '<button type="button" class="btn sm" id="rAgain">' + btnLabel('download-simple', t('result.downloadAgain')) + '</button></div>' :
+        '<div class="sp-8"></div>' + legacyLinks(r)) +
+      ((r.pages || []).length ? '<div class="sp-12"></div><div class="result-pages">' + r.pages.map(function (p) {
         return '<div class="caption-2 muted">' + esc(t('result.page', { page: p.page, songs: p.songs.map(pageSongLabel).join(' | ') })) + '</div>';
-      }).join('') + '</div>';
-    if ($('rPdf')) {
-      $('rPdf').onclick = function () {
-        $('rPdf').disabled = true;
-        api('exportSetlistPdf', r.setlistId).then(function (links) {
-          r.pdfId = links.pdfId;
-          r.pdfUrl = links.pdfUrl;
-          r.pdfDownloadUrl = links.pdfDownloadUrl;
-          renderResult(r);
-          toast(t('result.pdfMade'));
-        }).catch(function (e) {
-          if ($('rPdf')) {
-            $('rPdf').disabled = false;
-          }
-          fail(e);
-        });
-      };
+      }).join('') + '</div>' : '') +
+      '<div class="result-finish"><p class="body-6 grow">' + esc(t('result.finishHint')) + '</p>' +
+      '<button type="button" class="btn primary" id="rFinish">' + btnLabel('check-square-offset', t('result.finish')) + '</button></div>' +
+      '</div>';
+    if ($('rAgain')) {
+      $('rAgain').onclick = function () { saveFile(r.file); };
     }
+    $('rFinish').onclick = finishSetlist;
   }
 
   function renderHistory() {
     $('view').innerHTML = '<div class="card"><div class="row"><div class="grow"><h1 class="heading-5">' + esc(t('history.title')) + '</h1><div class="caption-2 muted">' + esc(t('history.subtitle')) + '</div></div></div>' +
       '<div class="sp-16"></div><div class="search">' + ic('magnifying-glass') + '<input type="search" id="hSearch" aria-label="' + esc(t('history.search')) + '" placeholder="' + esc(t('history.search')) + '"></div></div>' +
-      '<div class="card"><div id="hList">' + skeleton(4) + '</div></div>';
+      '<div id="hList"><div class="card">' + skeleton(4) + '</div></div>';
     $('hSearch').oninput = renderHistoryList;
     renderHistoryList();
     api('listSetlists').then(function (list) {
@@ -1668,7 +1818,48 @@
       if (state.view === 'history') {
         renderHistoryList();
       }
-    }).catch(fail);
+    }).catch(function (e) {
+      if (state.view === 'history' && !state.setlistsLoaded && $('hList')) {
+        $('hList').innerHTML = '<div class="card"><div class="form-error">' + esc(errMsg(e)) + '</div></div>';
+      }
+      fail(e);
+    });
+  }
+
+  function historySongs(s) {
+    if (Array.isArray(s.songs) && s.songs.length) {
+      return s.songs;
+    }
+    return (s.songTitles || []).map(function (title) { return { title: title, key: '' }; });
+  }
+
+  function historyDate(iso) {
+    var p = String(iso || '').substring(0, 10).split('-');
+    if (p.length !== 3 || !Number(p[1])) {
+      return '<div class="hist-date" aria-hidden="true"><span class="hist-day">–</span></div>';
+    }
+    var months = MONTHS[L.getLang() === 'th' ? 'th' : 'en'];
+    return '<div class="hist-date" aria-hidden="true"><span class="hist-mon">' + esc(months[Number(p[1]) - 1]) + '</span><span class="hist-day">' + Number(p[2]) + '</span><span class="hist-year">' + esc(p[0]) + '</span></div>';
+  }
+
+  function historyCard(s) {
+    var songs = historySongs(s);
+    var actions = (can('setlist.create') ? '<button type="button" class="btn sm" data-reuse="' + esc(s.id) + '">' + btnLabel('arrow-counter-clockwise', t('history.reuse')) + '</button>' : '') +
+      (can('setlist.delete') ? '<button type="button" class="btn sm danger" data-del="' + esc(s.id) + '">' + btnLabel('trash', t('common.delete')) + '</button>' : '');
+    return '<article class="hist-card">' +
+      '<header class="hist-head">' + historyDate(s.serviceDate) +
+      '<div class="hist-info"><h2 class="title-2 hist-title">' + esc(s.title) + '</h2>' +
+      '<div class="hist-meta caption-2"><span class="sr-only">' + esc(shortDate(s.serviceDate)) + '</span>' +
+      (s.leader ? '<span class="hist-meta-item">' + ic('user') + '<span>' + esc(s.leader) + '</span></span>' : '') +
+      '<span class="hist-meta-item">' + ic('music-notes') + '<span>' + esc(tCount('history.songCount', songs.length)) + '</span></span>' +
+      '</div></div></header>' +
+      (songs.length ? '<ol class="hist-songs">' + songs.map(function (song, i) {
+        return '<li class="hist-song"><span class="hist-num">' + (i + 1) + '</span><span class="hist-song-title">' + esc(song.title) + '</span>' +
+          (song.key ? '<span class="hist-key" aria-label="' + esc(t('history.keyLabel', { key: song.key })) + '">' + esc(song.key) + '</span>' : '') + '</li>';
+      }).join('') + '</ol>' : '') +
+      (s.description ? '<p class="hist-desc caption-2 pre-wrap">' + esc(s.description) + '</p>' : '') +
+      (actions ? '<div class="hist-actions">' + actions + '</div>' : '') +
+      '</article>';
   }
 
   function renderHistoryList() {
@@ -1681,42 +1872,19 @@
       if (!q) {
         return true;
       }
-      return (s.title + ' ' + s.leader + ' ' + s.songTitles.join(' ') + ' ' + s.serviceDate).toLowerCase().indexOf(q) >= 0;
+      return (s.title + ' ' + s.leader + ' ' + (s.songTitles || []).join(' ') + ' ' + s.serviceDate + ' ' + shortDate(s.serviceDate)).toLowerCase().indexOf(q) >= 0;
     });
     if (!state.setlists.length) {
-      el.innerHTML = emptyState('clock-counter-clockwise', t('history.emptyTitle'), t('history.emptyText'));
+      el.innerHTML = '<div class="card">' + emptyState('clock-counter-clockwise', t('history.emptyTitle'), t('history.emptyText')) + '</div>';
       return;
     }
     if (!list.length) {
-      el.innerHTML = emptyState('magnifying-glass', t('history.noMatch'), '');
+      el.innerHTML = '<div class="card">' + emptyState('magnifying-glass', t('history.noMatch'), '') + '</div>';
       return;
     }
-    el.innerHTML = '<table class="list"><thead><tr><th>' + esc(t('history.colDate')) + '</th><th>' + esc(t('history.colSet')) + '</th><th>' + esc(t('history.colLeader')) + '</th><th>' + esc(t('history.colFiles')) + '</th></tr></thead><tbody>' +
-      list.map(function (s) {
-        return '<tr><td class="nowrap" data-label="' + esc(t('history.colDate')) + '">' + esc(shortDate(s.serviceDate)) + '</td>' +
-          '<td class="cell-main"><span class="title-4">' + esc(s.title) + '</span><div class="caption-2 muted">' + s.songTitles.map(function (tt, i) { return (i + 1) + '. ' + esc(tt); }).join(' · ') + '</div>' +
-          (s.description ? '<div class="caption-2 muted pre-wrap">' + esc(s.description) + '</div>' : '') + '</td>' +
-          '<td data-label="' + esc(t('history.colLeader')) + '">' + esc(s.leader) + '</td>' +
-          '<td class="result-links cell-files">' + linkButtons(s, true) +
-          (can('leader') ? '<button type="button" class="btn sm" data-reuse="' + esc(s.id) + '">' + btnLabel('arrow-counter-clockwise', t('history.reuse')) + '</button>' : '') +
-          (can('leader') && s.docId ? '<button type="button" class="btn sm" data-pdf="' + esc(s.id) + '">' + btnLabel('file-pdf', t('history.pdfFromDoc')) + '</button>' : '') +
-          (can('admin') ? '<button type="button" class="btn sm danger" data-del="' + esc(s.id) + '">' + btnLabel('trash', t('common.delete')) + '</button>' : '') +
-          '</td></tr>';
-      }).join('') + '</tbody></table>';
+    el.innerHTML = '<div class="hist-grid">' + list.map(historyCard).join('') + '</div>';
     each(el, '[data-reuse]', function (btn) {
       btn.onclick = function () { reuseSetlist(btn.getAttribute('data-reuse')); };
-    });
-    each(el, '[data-pdf]', function (btn) {
-      btn.onclick = function () {
-        btn.disabled = true;
-        api('exportSetlistPdf', btn.getAttribute('data-pdf')).then(function () {
-          toast(t('history.pdfMade'));
-          renderHistory();
-        }).catch(function (e) {
-          btn.disabled = false;
-          fail(e);
-        });
-      };
     });
     each(el, '[data-del]', function (btn) {
       btn.onclick = function () {
@@ -1724,7 +1892,13 @@
           if (!ok) {
             return;
           }
-          api('deleteSetlist', btn.getAttribute('data-del')).then(function () {
+          var id = btn.getAttribute('data-del');
+          api('deleteSetlist', id).then(function () {
+            state.setlists = state.setlists.filter(function (s) { return s.id !== id; });
+            if (state.builder && state.builder.setlistId === id) {
+              delete state.builder.setlistId;
+              saveBuilder();
+            }
             toast(t('history.deleted'));
             refreshSongs();
             renderHistory();
@@ -1870,7 +2044,7 @@
   }
 
   function renderUsers() {
-    if (!can('admin')) {
+    if (!can('users.manage')) {
       go('library');
       return;
     }
@@ -1931,26 +2105,27 @@
         el.innerHTML = emptyState('check-circle', t('users.pendingEmptyTitle'), t('users.pendingEmptyText'));
         return;
       }
-      el.innerHTML = '<table class="list"><thead><tr><th>' + esc(t('users.colUsername')) + '</th><th>' + esc(t('users.colName')) + '</th><th>' + esc(t('users.colRequested')) + '</th><th>' + esc(t('users.roleFor')) + '</th><th><span class="sr-only">' + esc(t('common.actions')) + '</span></th></tr></thead><tbody>' +
+      el.innerHTML = '<table class="list"><thead><tr><th>' + esc(t('users.colUsername')) + '</th><th>' + esc(t('users.colName')) + '</th><th>' + esc(t('users.colRequested')) + '</th><th><span class="sr-only">' + esc(t('common.actions')) + '</span></th></tr></thead><tbody>' +
         pending.map(function (u) {
           return '<tr><td class="cell-main"><span class="title-4">' + esc(u.username) + '</span></td><td data-label="' + esc(t('users.colName')) + '">' + esc(u.displayName) + '</td>' +
             '<td data-label="' + esc(t('users.colRequested')) + '">' + esc(shortDate(u.createdAt)) + '</td>' +
-            '<td data-label="' + esc(t('users.roleFor')) + '"><select class="auto" data-role-for="' + esc(u.username) + '" aria-label="' + esc(t('users.roleFor')) + '">' + ROLES.map(function (r) { return '<option value="' + r + '"' + (r === 'viewer' ? ' selected' : '') + '>' + esc(roleLabel(r)) + '</option>'; }).join('') + '</select></td>' +
             '<td class="cell-actions"><button type="button" class="btn sm primary" data-approve="' + esc(u.username) + '">' + btnLabel('check', t('users.approve')) + '</button>' +
             '<button type="button" class="btn sm danger" data-reject="' + esc(u.username) + '">' + btnLabel('x', t('users.reject')) + '</button></td></tr>';
         }).join('') + '</tbody></table>';
     } else {
-      el.innerHTML = '<table class="list"><thead><tr><th>' + esc(t('users.colUsername')) + '</th><th>' + esc(t('users.colName')) + '</th><th>' + esc(t('users.colRole')) + '</th><th>' + esc(t('users.colStatus')) + '</th><th><span class="sr-only">' + esc(t('common.actions')) + '</span></th></tr></thead><tbody>' +
+      el.innerHTML = '<table class="list"><thead><tr><th>' + esc(t('users.colUsername')) + '</th><th>' + esc(t('users.colName')) + '</th><th>' + esc(t('users.colAccess')) + '</th><th>' + esc(t('users.colStatus')) + '</th><th><span class="sr-only">' + esc(t('common.actions')) + '</span></th></tr></thead><tbody>' +
         state.users.map(function (u, i) {
           var action = '';
           if (u.status === 'pending') {
             action = '<button type="button" class="btn sm" data-goto-pending="1">' + btnLabel('hourglass-medium', t('users.review')) + '</button>';
           } else if (u.status === 'rejected') {
-            action = '<button type="button" class="btn sm" data-approve="' + esc(u.username) + '" data-role-default="' + esc(u.role || 'viewer') + '">' + btnLabel('check', t('users.approve')) + '</button>';
+            action = '<button type="button" class="btn sm" data-approve="' + esc(u.username) + '">' + btnLabel('check', t('users.approve')) + '</button>';
           } else {
-            action = '<button type="button" class="btn sm" data-u="' + i + '">' + btnLabel('pencil-simple', t('common.edit')) + '</button>';
+            action = '<button type="button" class="btn sm" data-u="' + i + '">' + btnLabel('sliders-horizontal', t('users.manage')) + '</button>';
           }
-          return '<tr><td class="cell-main"><span class="title-4">' + esc(u.username) + '</span></td><td data-label="' + esc(t('users.colName')) + '">' + esc(u.displayName) + '</td><td data-label="' + esc(t('users.colRole')) + '">' + esc(roleLabel(u.role)) + '</td>' +
+          var p = userPerms(u);
+          return '<tr><td class="cell-main"><span class="title-4">' + esc(u.username) + '</span></td><td data-label="' + esc(t('users.colName')) + '">' + esc(u.displayName) + '</td>' +
+            '<td data-label="' + esc(t('users.colAccess')) + '"><div class="access-cell"><span class="title-4">' + esc(accessLabel(u)) + '</span><span class="caption-5 muted">' + esc(t('users.permCount', { n: p.length, total: PERMS.length })) + '</span></div></td>' +
             '<td data-label="' + esc(t('users.colStatus')) + '">' + statusPill(u) + '</td>' +
             '<td class="cell-actions">' + action + '</td></tr>';
         }).join('') + '</tbody></table>';
@@ -1964,16 +2139,8 @@
     each(el, '[data-approve]', function (b) {
       b.onclick = function () {
         var uname = b.getAttribute('data-approve');
-        var sel = el.querySelector('[data-role-for="' + uname + '"]');
-        var role = sel ? sel.value : (b.getAttribute('data-role-default') || 'viewer');
-        b.disabled = true;
-        api('reviewUser', uname, 'approve', role).then(function () {
-          toast(t('users.approved', { name: uname }));
-          refreshPending();
-        }).catch(function (e) {
-          b.disabled = false;
-          fail(e);
-        });
+        var u = state.users.filter(function (x) { return x.username === uname; })[0] || { username: uname, displayName: uname };
+        approveDialog(u);
       };
     });
     each(el, '[data-reject]', function (b) {
@@ -1992,19 +2159,107 @@
     });
   }
 
+  function permSwitches(selected, locked) {
+    var on = {};
+    (selected || []).forEach(function (p) { on[p] = true; });
+    var adminOn = !!on['users.manage'];
+    return '<div class="perm-list" role="group" aria-label="' + esc(t('users.permsTitle')) + '">' + PERMS.map(function (p) {
+      var checked = adminOn || on[p];
+      var disabled = locked || (adminOn && p !== 'users.manage');
+      return '<label class="perm-row' + (disabled ? ' is-disabled' : '') + '"><span class="perm-text"><span class="perm-name">' + esc(t('perm.' + p)) + '</span><span class="perm-desc">' + esc(t('perm.' + p + '.d')) + '</span></span>' +
+        '<span class="switch"><input type="checkbox" role="switch" data-perm="' + p + '" aria-label="' + esc(t('perm.' + p)) + '"' + (checked ? ' checked' : '') + (disabled ? ' disabled' : '') + '><span class="track"><span class="thumb"></span></span></span></label>';
+    }).join('') + '</div>';
+  }
+
+  function bindPermSwitches(root) {
+    var boxes = {};
+    each(root, '[data-perm]', function (box) { boxes[box.getAttribute('data-perm')] = box; });
+    var sync = function () {
+      var adminOn = boxes['users.manage'] && boxes['users.manage'].checked;
+      PERMS.forEach(function (p) {
+        if (p === 'users.manage' || !boxes[p]) {
+          return;
+        }
+        if (adminOn) {
+          boxes[p].checked = true;
+        }
+        boxes[p].disabled = adminOn;
+        boxes[p].closest('.perm-row').classList.toggle('is-disabled', adminOn);
+      });
+    };
+    Object.keys(boxes).forEach(function (p) {
+      boxes[p].onchange = function () {
+        if (boxes[p].checked) {
+          (PERM_NEEDS[p] || []).forEach(function (need) {
+            if (boxes[need]) {
+              boxes[need].checked = true;
+            }
+          });
+        } else {
+          Object.keys(PERM_NEEDS).forEach(function (dep) {
+            if (PERM_NEEDS[dep].indexOf(p) >= 0 && boxes[dep]) {
+              boxes[dep].checked = false;
+            }
+          });
+        }
+        sync();
+      };
+    });
+  }
+
+  function readPerms(root) {
+    var out = [];
+    each(root, '[data-perm]', function (box) {
+      if (box.checked) {
+        out.push(box.getAttribute('data-perm'));
+      }
+    });
+    return out;
+  }
+
+  function approveDialog(u) {
+    modal('<h3 class="heading-6" id="modalTitle">' + esc(t('users.approveTitle', { name: u.displayName || u.username })) + '</h3>' +
+      '<p class="caption-2 muted">' + esc(u.username) + '</p><div class="sp-12"></div>' +
+      '<p class="body-6">' + esc(t('users.permsHint')) + '</p><div class="sp-12"></div>' +
+      permSwitches([], false) +
+      '<div class="modal-actions"><button type="button" class="btn" id="apC">' + esc(t('common.cancel')) + '</button><button type="button" class="btn primary" id="apS">' + btnLabel('check', t('users.approve')) + '</button></div>', function () {
+      bindPermSwitches($('modalRoot'));
+      $('apC').onclick = closeModal;
+      $('apS').onclick = function () {
+        var perms = readPerms($('modalRoot'));
+        $('apS').disabled = true;
+        api('reviewUser', u.username, 'approve', perms).then(function () {
+          closeModal();
+          toast(t('users.approved', { name: u.username }));
+          refreshPending();
+          api('listLeaderNames').then(function (names) { state.leaders = names; }).catch(function () {});
+        }).catch(function (err) {
+          if ($('apS')) {
+            $('apS').disabled = false;
+          }
+          fail(err);
+        });
+      };
+    });
+  }
+
   function userForm(u) {
     var isNew = !u;
-    u = u || { username: '', displayName: '', role: 'leader', active: true };
+    u = u || { username: '', displayName: '', perms: [], active: true };
+    var self = !isNew && state.user && u.username === state.user.username;
     modal('<h3 class="heading-6" id="modalTitle">' + esc(isNew ? t('users.addTitle') : t('users.editTitle')) + '</h3>' +
       '<form id="uForm" class="form" novalidate>' +
       field('fU', t('users.colUsername'), '<input type="text" id="fU" value="' + esc(u.username) + '" autocapitalize="none" spellcheck="false"' + (isNew ? '' : ' disabled') + '>') +
       field('fN', t('users.fName'), '<input type="text" id="fN" value="' + esc(u.displayName) + '">') +
-      field('fR', t('users.fRole'), '<select id="fR">' + ROLES.map(function (r) { return '<option value="' + r + '"' + (u.role === r ? ' selected' : '') + '>' + esc(roleLabel(r)) + '</option>'; }).join('') + '</select>') +
       field('fP', isNew ? t('users.fPassword') : t('users.fNewPassword'), '<input type="text" id="fP" autocomplete="off">') +
-      (isNew ? '' : '<label class="check"><input type="checkbox" id="fA"' + (u.active ? ' checked' : '') + '><span>' + esc(t('users.fActive')) + '</span></label>') +
+      (isNew || self ? '' : '<label class="check"><input type="checkbox" id="fA"' + (u.active ? ' checked' : '') + '><span>' + esc(t('users.fActive')) + '</span></label><div class="sp-12"></div>') +
+      '<h4 class="title-3">' + esc(t('users.permsTitle')) + '</h4>' +
+      '<p class="caption-2 muted">' + esc(self ? t('users.permsSelf') : t('users.permsHint')) + '</p><div class="sp-8"></div>' +
+      permSwitches(isNew ? [] : userPerms(u), self) +
       '<div class="form-error" id="fErr" role="alert" hidden></div>' +
       '<div class="modal-actions"><button type="button" class="btn" id="fC">' + esc(t('common.cancel')) + '</button><button type="submit" class="btn primary" id="fS">' + esc(t('common.save')) + '</button></div>' +
       '</form>', function () {
+      bindPermSwitches($('uForm'));
       $('fC').onclick = closeModal;
       $('uForm').onsubmit = function (e) {
         e.preventDefault();
@@ -2012,10 +2267,15 @@
         var data = {
           username: $('fU').value,
           displayName: $('fN').value,
-          role: $('fR').value,
           password: $('fP').value,
-          active: isNew ? true : $('fA').checked
+          active: isNew || self ? true : $('fA').checked
         };
+        if (self) {
+          data.role = u.role || 'admin';
+        } else {
+          data.perms = readPerms($('uForm'));
+          data.role = roleForPerms(data.perms);
+        }
         if (isNew && !USERNAME_RE.test(String(data.username).trim().toLowerCase())) {
           setFieldError('fU', t('err.INVALID_USERNAME'));
           $('fU').focus();
@@ -2044,8 +2304,9 @@
 
   function renderAccount() {
     $('view').innerHTML = '<div class="card narrow"><h1 class="heading-5">' + esc(t('account.title')) + '</h1>' +
-      '<p class="body-6 muted">' + esc(state.user.displayName) + ' (' + esc(state.user.username) + ') · ' + esc(roleLabel(state.user.role)) + '</p>' +
+      '<p class="body-6 muted">' + esc(state.user.displayName) + ' (' + esc(state.user.username) + ') · ' + esc(accessLabel(state.user)) + '</p>' +
       '<p class="caption-2 muted">' + ic(state.remember ? 'lock-key' : 'info') + ' ' + esc(state.remember ? t('account.remembered') : t('account.notRemembered')) + '</p>' +
+      (userPerms(state.user).length ? '' : '<div class="sp-12"></div><p class="note-line caption-2">' + ic('info') + '<span>' + esc(t('account.noAccess')) + '</span></p>') +
       '<div class="sp-16"></div><h2 class="heading-6">' + esc(t('account.changePw')) + '</h2><div class="sp-8"></div>' +
       '<form id="aForm" class="form" novalidate>' +
       field('aOld', t('account.oldPw'), passwordInput('aOld', 'current-password')) +
@@ -2138,7 +2399,7 @@
         throw e;
       }
       return Promise.all([api('getMe'), api('listSongs'), api('listLeaderNames')]).then(function (r) {
-        if (r[0] && ROLE_LEVEL[r[0].role] >= ROLE_LEVEL.admin) {
+        if (r[0] && userPerms(r[0]).indexOf('users.manage') >= 0) {
           setTimeout(refreshPending, 0);
         }
         return { user: r[0], songs: r[1], leaders: r[2], pendingCount: state.pendingCount };
@@ -2146,7 +2407,7 @@
     });
   }
 
-  $('menuToggle').onclick = function () { setSidebar(!state.sidebarOpen, isNarrow() ? 'nav' : null); };
+  $('menuToggle').onclick = function () { setSidebar(!state.sidebarOpen, isNarrow() ? 'nav' : 'close'); };
   $('sbClose').onclick = function () { setSidebar(false, 'toggle'); };
   $('sbBackdrop').onclick = function () { setSidebar(false); };
   if (narrowMq) {

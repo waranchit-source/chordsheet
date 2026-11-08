@@ -69,11 +69,9 @@ function buildChordLine_(segments) {
   var cur = 0;
   var x = 0;
   var lyric = '';
-  var chords = [];
   for (var i = 0; i < segments.length; i++) {
     var seg = segments[i];
     if (seg.chord) {
-      chords.push({ x: x, chord: seg.chord });
       var n = Math.round((x - cur) / spaceW);
       if (out.length > 0 && n < 1) {
         n = 1;
@@ -87,49 +85,7 @@ function buildChordLine_(segments) {
     lyric += seg.text;
     x += textWidthPt_(seg.text, false, LAYOUT.LYRIC_SIZE);
   }
-  return { chordLine: out, lyricLine: lyric, chords: chords };
-}
-
-function pdfChordText_(chords) {
-  var dotW = textWidthPt_('.', false, LAYOUT.CHORD_SIZE);
-  var out = '';
-  var hidden = [];
-  var cur = 0;
-  for (var i = 0; i < chords.length; i++) {
-    var n = Math.round((chords[i].x - cur) / dotW);
-    if (i > 0 && n < 1) {
-      n = 1;
-    }
-    if (n < 0) {
-      n = 0;
-    }
-    if (n > 0) {
-      hidden.push([out.length, out.length + n - 1]);
-      out += new Array(n + 1).join('.');
-    }
-    out += chords[i].chord;
-    cur += n * dotW + textWidthPt_(chords[i].chord, true, LAYOUT.CHORD_SIZE);
-  }
-  return { text: out, hidden: hidden };
-}
-
-function pdfLyricText_(text) {
-  var hidden = [];
-  var out = String(text).replace(/ /g, function (sp, offset) {
-    hidden.push([offset, offset]);
-    return '.';
-  });
-  return { text: out, hidden: hidden };
-}
-
-function pdfParagraph_(p) {
-  if (p.kind === 'chord' && p.chords && p.chords.length) {
-    return pdfChordText_(p.chords);
-  }
-  if (p.kind === 'lyric' && p.paired && / /.test(p.text) && p.text.trim()) {
-    return pdfLyricText_(p.text);
-  }
-  return null;
+  return { chordLine: out, lyricLine: lyric };
 }
 
 function buildInlineLine_(segments) {
@@ -187,8 +143,8 @@ function songToParagraphs_(item, number) {
       paras.push({ kind: 'inline', text: inl.text, size: LAYOUT.LYRIC_SIZE, chordRanges: inl.ranges, group: groupId });
     } else {
       var cl = buildChordLine_(p.segments);
-      paras.push({ kind: 'chord', text: cl.chordLine, size: LAYOUT.CHORD_SIZE, bold: true, color: LAYOUT.CHORD_COLOR, group: groupId, chords: cl.chords });
-      paras.push({ kind: 'lyric', text: cl.lyricLine.trim() ? cl.lyricLine : ' ', size: LAYOUT.LYRIC_SIZE, group: groupId, paired: true });
+      paras.push({ kind: 'chord', text: cl.chordLine, size: LAYOUT.CHORD_SIZE, bold: true, color: LAYOUT.CHORD_COLOR, group: groupId });
+      paras.push({ kind: 'lyric', text: cl.lyricLine.trim() ? cl.lyricLine : ' ', size: LAYOUT.LYRIC_SIZE, group: groupId });
     }
   });
   while (paras.length && paras[paras.length - 1].kind === 'blank') {
@@ -324,7 +280,7 @@ function planLayout_(title, description, items) {
   return { header: header, pages: pages, geometry: g };
 }
 
-function styleParagraph_(para, p, hidden) {
+function styleParagraph_(para, p) {
   var A = DocumentApp.Attribute;
   var attrs = {};
   attrs[A.FONT_FAMILY] = LAYOUT.FONT_FAMILY;
@@ -357,12 +313,6 @@ function styleParagraph_(para, p, hidden) {
     text.setFontSize(p.keyStart, p.text.length - 1, LAYOUT.NOTE_SIZE);
     text.setBold(p.keyStart, p.text.length - 1, false);
     text.setForegroundColor(p.keyStart, p.text.length - 1, LAYOUT.CHORD_COLOR);
-  }
-  if (hidden && hidden.length) {
-    hidden.forEach(function (r) {
-      text.setForegroundColor(r[0], r[1], '#ffffff');
-      text.setBold(r[0], r[1], false);
-    });
   }
 }
 
@@ -417,14 +367,13 @@ function docText_(text) {
   return s === '' ? ' ' : s;
 }
 
-function fillContainer_(container, paras, reuseFirst, forPdf) {
+function fillContainer_(container, paras, reuseFirst) {
   var first = reuseFirst && container.getNumChildren() > 0 && container.getChild(0).getType() === DocumentApp.ElementType.PARAGRAPH ? container.getChild(0).asParagraph() : null;
   if (!paras.length) {
     return;
   }
   paras.forEach(function (p, i) {
-    var pdf = forPdf ? pdfParagraph_(p) : null;
-    var content = docText_(pdf ? pdf.text : p.text);
+    var content = docText_(p.text);
     var para;
     if (i === 0 && first) {
       para = first;
@@ -432,7 +381,7 @@ function fillContainer_(container, paras, reuseFirst, forPdf) {
     } else {
       para = container.appendParagraph(content);
     }
-    styleParagraph_(para, p, pdf ? pdf.hidden : null);
+    styleParagraph_(para, p);
   });
 }
 
@@ -457,7 +406,7 @@ function shrinkParagraph_(para) {
   para.setAttributes(attrs);
 }
 
-function buildDocument_(docName, plan, forPdf) {
+function buildDocument_(docName, plan) {
   var doc = DocumentApp.create(docName);
   var body = doc.getBody();
   body.setPageWidth(LAYOUT.PAGE_WIDTH);
@@ -482,7 +431,7 @@ function buildDocument_(docName, plan, forPdf) {
       table.setBorderWidth(0);
       table.setColumnWidth(0, g.contentWidth);
       prepareCell_(table.getCell(0, 0), g.contentWidth);
-      fillContainer_(table.getCell(0, 0), page.left, true, forPdf);
+      fillContainer_(table.getCell(0, 0), page.left, true);
     } else {
       table = body.appendTable([[' ', ' ']]);
       table.setBorderWidth(0);
@@ -490,8 +439,8 @@ function buildDocument_(docName, plan, forPdf) {
       table.setColumnWidth(1, g.halfCellWidth);
       prepareCell_(table.getCell(0, 0), g.halfCellWidth);
       prepareCell_(table.getCell(0, 1), g.halfCellWidth);
-      fillContainer_(table.getCell(0, 0), page.left, true, forPdf);
-      fillContainer_(table.getCell(0, 1), page.right, true, forPdf);
+      fillContainer_(table.getCell(0, 0), page.left, true);
+      fillContainer_(table.getCell(0, 1), page.right, true);
     }
     if (pi === 0 && !firstUsed) {
       var firstChild = body.getChild(0);

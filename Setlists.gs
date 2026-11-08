@@ -1,42 +1,67 @@
-function fileLinks_(docId, pdfId) {
-  return {
-    docId: docId || '',
-    pdfId: pdfId || '',
-    docUrl: docId ? 'https://docs.google.com/document/d/' + docId + '/edit' : '',
-    docxUrl: docId ? 'https://docs.google.com/document/d/' + docId + '/export?format=docx' : '',
-    pdfUrl: pdfId ? 'https://drive.google.com/file/d/' + pdfId + '/view' : '',
-    pdfDownloadUrl: pdfId ? 'https://drive.google.com/uc?export=download&id=' + pdfId : ''
-  };
-}
-
-function shareFile_(file, editable) {
-  try {
-    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, editable ? DriveApp.Permission.EDIT : DriveApp.Permission.VIEW);
-  } catch (e) {
-  }
-}
-
 function safeFileName_(s) {
   return String(s || '').replace(/[\\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 120);
 }
 
-function exportPdf_(docId, name) {
-  var blob = DriveApp.getFileById(docId).getAs(MimeType.PDF).setName(safeFileName_(name) + '.pdf');
-  var pdfFile = getFolder_(PROP_KEYS.PDF_FOLDER_ID).createFile(blob);
-  shareFile_(pdfFile, false);
-  return pdfFile.getId();
+function authHeaders_() {
+  return { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() };
 }
 
-function exportAlignedPdf_(docId, name) {
-  var copy = DriveApp.getFileById(docId).makeCopy(safeFileName_(name) + ' (pdf)');
-  try {
-    var doc = DocumentApp.openById(copy.getId());
-    hideSpacesForPdf_(doc.getBody());
-    doc.saveAndClose();
-    return exportPdf_(copy.getId(), name);
-  } finally {
-    copy.setTrashed(true);
+function exportDocBlob_(docId, format) {
+  var url = 'https://docs.google.com/document/d/' + docId + '/export?format=' + format;
+  var options = { headers: authHeaders_(), muteHttpExceptions: true };
+  for (var attempt = 0; attempt < 3; attempt++) {
+    var res = UrlFetchApp.fetch(url, options);
+    var code = res.getResponseCode();
+    if (code === 200) {
+      return res.getBlob();
+    }
+    if (code !== 429 && code < 500) {
+      break;
+    }
+    Utilities.sleep(800 * (attempt + 1));
   }
+  return null;
+}
+
+function fallbackPdfBlob_(docId) {
+  var doc = DocumentApp.openById(docId);
+  hideSpacesForPdf_(doc.getBody());
+  doc.saveAndClose();
+  return DriveApp.getFileById(docId).getAs(MimeType.PDF);
+}
+
+function deleteDocPermanently_(docId) {
+  try {
+    var res = UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files/' + docId, { method: 'delete', headers: authHeaders_(), muteHttpExceptions: true });
+    var code = res.getResponseCode();
+    if (code === 204 || code === 200 || code === 404) {
+      return;
+    }
+  } catch (e) {
+  }
+  try {
+    DriveApp.getFileById(docId).setTrashed(true);
+  } catch (e2) {
+  }
+}
+
+function trashFiles_(ids) {
+  ids.forEach(function (id) {
+    if (id) {
+      try {
+        DriveApp.getFileById(String(id)).setTrashed(true);
+      } catch (e) {
+      }
+    }
+  });
+}
+
+function deleteUsageRows_(setlistId) {
+  var usageSheet = getSheet_(SHEETS.USAGE);
+  var rows = readTable_(SHEETS.USAGE).filter(function (u) { return String(u.SetlistId) === String(setlistId); });
+  rows.sort(function (a, b) { return b._row - a._row; }).forEach(function (u) {
+    usageSheet.deleteRow(u._row);
+  });
 }
 
 function sanitizeItems_(items) {
@@ -62,7 +87,7 @@ function sanitizeItems_(items) {
 }
 
 function generateSetlist(token, payload) {
-  var session = requireSession_(token, 'leader');
+  var session = requireSession_(token, 'setlist.create');
   var items = sanitizeItems_(payload.items);
   var title = String(payload.title || '').trim() || 'ชุดเพลง';
   var serviceDate = String(payload.serviceDate || '').substring(0, 10) || Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd');
@@ -71,40 +96,62 @@ function generateSetlist(token, payload) {
   var hasNotes = description.trim() !== '' || items.some(function (it) { return it.note.trim() !== ''; });
   var outputType = payload.outputType === 'doc' || hasNotes ? 'doc' : 'pdf';
 
-  var plan = planLayout_(title, description, items);
-  var docName = safeFileName_(serviceDate + ' ' + title);
-  var docId = buildDocument_(docName, plan, outputType === 'pdf');
-  var docFile = DriveApp.getFileById(docId);
-
-  var pdfId = '';
-  if (outputType === 'pdf') {
-    pdfId = exportPdf_(docId, docName);
-    docFile.setTrashed(true);
-    docId = '';
-  } else {
-    docFile.moveTo(getFolder_(PROP_KEYS.DOCS_FOLDER_ID));
-    shareFile_(docFile, true);
+  var existing = payload.setlistId ? findBy_(SHEETS.SETLISTS, 'SetlistId', String(payload.setlistId)) : null;
+  if (existing && String(existing.CreatedBy) !== session.displayName && !hasPerm_(session, 'users.manage')) {
+    existing = null;
   }
 
-  var setlistId = newId_('L');
+  var plan = planLayout_(title, description, items);
+  var docName = safeFileName_(serviceDate + ' ' + title);
+  var docId = buildDocument_(docName, plan);
+  var blob = null;
+  try {
+    blob = exportDocBlob_(docId, outputType === 'pdf' ? 'pdf' : 'docx');
+    if (!blob && outputType === 'pdf') {
+      blob = fallbackPdfBlob_(docId);
+    }
+  } finally {
+    deleteDocPermanently_(docId);
+  }
+  if (!blob) {
+    throw new Error('EXPORT_FAILED');
+  }
+
+  var setlistId = existing ? String(existing.SetlistId) : newId_('L');
   var storedItems = items.map(function (it) {
     return { songId: it.songId, title: it.title, key: it.key, shift: it.shift, accidental: it.accidental, layout: it.layout, note: it.note };
   });
   var now = new Date();
+  var oldFiles = [];
   withLock_(function () {
-    appendRow_(SHEETS.SETLISTS, {
-      SetlistId: setlistId,
-      Title: title,
-      ServiceDate: serviceDate,
-      Leader: leader,
-      Description: description,
-      OutputType: outputType,
-      DocId: docId,
-      PdfId: pdfId,
-      ItemsJson: JSON.stringify(storedItems),
-      CreatedBy: session.displayName,
-      CreatedAt: now
-    });
+    var fresh = existing ? findBy_(SHEETS.SETLISTS, 'SetlistId', setlistId) : null;
+    if (fresh) {
+      oldFiles = [fresh.DocId, fresh.PdfId];
+      fresh.Title = title;
+      fresh.ServiceDate = serviceDate;
+      fresh.Leader = leader;
+      fresh.Description = description;
+      fresh.OutputType = outputType;
+      fresh.DocId = '';
+      fresh.PdfId = '';
+      fresh.ItemsJson = JSON.stringify(storedItems);
+      updateRow_(SHEETS.SETLISTS, fresh._row, fresh);
+      deleteUsageRows_(setlistId);
+    } else {
+      appendRow_(SHEETS.SETLISTS, {
+        SetlistId: setlistId,
+        Title: title,
+        ServiceDate: serviceDate,
+        Leader: leader,
+        Description: description,
+        OutputType: outputType,
+        DocId: '',
+        PdfId: '',
+        ItemsJson: JSON.stringify(storedItems),
+        CreatedBy: session.displayName,
+        CreatedAt: now
+      });
+    }
     appendRows_(SHEETS.USAGE, items.map(function (it) {
       return {
         Timestamp: now,
@@ -118,6 +165,7 @@ function generateSetlist(token, payload) {
       };
     }));
   });
+  trashFiles_(oldFiles);
 
   var summary = plan.pages.map(function (page, i) {
     return {
@@ -125,36 +173,17 @@ function generateSetlist(token, payload) {
       songs: page.items.map(function (p) { return { title: p.item.title, reason: p.reason }; })
     };
   });
-  var result = fileLinks_(docId, pdfId);
-  result.setlistId = setlistId;
-  result.outputType = outputType;
-  result.pages = summary;
-  return result;
-}
-
-function exportSetlistPdf(token, setlistId) {
-  requireSession_(token, 'leader');
-  var s = findBy_(SHEETS.SETLISTS, 'SetlistId', setlistId);
-  if (!s) {
-    throw new Error('SETLIST_NOT_FOUND');
-  }
-  if (!s.DocId) {
-    throw new Error('SETLIST_NO_DOC');
-  }
-  var name = safeFileName_(toDateOnly_(s.ServiceDate) + ' ' + s.Title);
-  var pdfId = exportAlignedPdf_(String(s.DocId), name);
-  if (s.PdfId) {
-    try {
-      DriveApp.getFileById(String(s.PdfId)).setTrashed(true);
-    } catch (e) {
+  return {
+    setlistId: setlistId,
+    updated: !!existing,
+    outputType: outputType,
+    pages: summary,
+    file: {
+      name: docName + (outputType === 'pdf' ? '.pdf' : '.docx'),
+      mimeType: outputType === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      base64: Utilities.base64Encode(blob.getBytes())
     }
-  }
-  withLock_(function () {
-    var fresh = findBy_(SHEETS.SETLISTS, 'SetlistId', setlistId);
-    fresh.PdfId = pdfId;
-    updateRow_(SHEETS.SETLISTS, fresh._row, fresh);
-  });
-  return fileLinks_(String(s.DocId), pdfId);
+  };
 }
 
 function setlistToClient_(s, withItems) {
@@ -164,7 +193,7 @@ function setlistToClient_(s, withItems) {
   } catch (e) {
     items = [];
   }
-  var out = fileLinks_(String(s.DocId || ''), String(s.PdfId || ''));
+  var out = {};
   out.id = String(s.SetlistId);
   out.title = String(s.Title);
   out.serviceDate = toDateOnly_(s.ServiceDate);
@@ -174,6 +203,7 @@ function setlistToClient_(s, withItems) {
   out.createdBy = String(s.CreatedBy || '');
   out.createdAt = toIso_(s.CreatedAt);
   out.songTitles = items.map(function (it) { return it.title; });
+  out.songs = items.map(function (it) { return { title: String(it.title || ''), key: String(it.key || '') }; });
   if (withItems) {
     out.items = items;
   }
@@ -181,7 +211,7 @@ function setlistToClient_(s, withItems) {
 }
 
 function listSetlists(token) {
-  requireSession_(token);
+  requireSession_(token, 'history.view');
   return readTable_(SHEETS.SETLISTS).filter(function (s) { return s.SetlistId; }).map(function (s) {
     return setlistToClient_(s, false);
   }).sort(function (a, b) {
@@ -190,7 +220,7 @@ function listSetlists(token) {
 }
 
 function getSetlist(token, setlistId) {
-  requireSession_(token);
+  requireSession_(token, 'history.view');
   var s = findBy_(SHEETS.SETLISTS, 'SetlistId', setlistId);
   if (!s) {
     throw new Error('SETLIST_NOT_FOUND');
@@ -199,26 +229,15 @@ function getSetlist(token, setlistId) {
 }
 
 function deleteSetlist(token, setlistId) {
-  requireSession_(token, 'admin');
+  requireSession_(token, 'setlist.delete');
   return withLock_(function () {
     var s = findBy_(SHEETS.SETLISTS, 'SetlistId', setlistId);
     if (!s) {
       throw new Error('SETLIST_NOT_FOUND');
     }
-    [s.DocId, s.PdfId].forEach(function (id) {
-      if (id) {
-        try {
-          DriveApp.getFileById(String(id)).setTrashed(true);
-        } catch (e) {
-        }
-      }
-    });
+    trashFiles_([s.DocId, s.PdfId]);
     getSheet_(SHEETS.SETLISTS).deleteRow(s._row);
-    var usageSheet = getSheet_(SHEETS.USAGE);
-    var rows = readTable_(SHEETS.USAGE).filter(function (u) { return String(u.SetlistId) === String(setlistId); });
-    rows.sort(function (a, b) { return b._row - a._row; }).forEach(function (u) {
-      usageSheet.deleteRow(u._row);
-    });
+    deleteUsageRows_(setlistId);
     return true;
   });
 }
