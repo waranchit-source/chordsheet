@@ -316,21 +316,23 @@ function styleParagraph_(para, p) {
   }
 }
 
+function docText_(text) {
+  var s = text === undefined || text === null ? '' : String(text);
+  return s === '' ? ' ' : s;
+}
+
 function fillContainer_(container, paras, reuseFirst) {
   var first = reuseFirst && container.getNumChildren() > 0 && container.getChild(0).getType() === DocumentApp.ElementType.PARAGRAPH ? container.getChild(0).asParagraph() : null;
   if (!paras.length) {
-    if (first) {
-      first.setText('');
-    }
     return;
   }
   paras.forEach(function (p, i) {
     var para;
     if (i === 0 && first) {
       para = first;
-      para.setText(p.text);
+      para.setText(docText_(p.text));
     } else {
-      para = container.appendParagraph(p.text);
+      para = container.appendParagraph(docText_(p.text));
     }
     styleParagraph_(para, p);
   });
@@ -372,19 +374,19 @@ function buildDocument_(docName, plan) {
   plan.pages.forEach(function (page, pi) {
     if (pi > 0) {
       var lastChild = body.getChild(body.getNumChildren() - 1);
-      var breakPara = lastChild.getType() === DocumentApp.ElementType.PARAGRAPH ? lastChild.asParagraph() : body.appendParagraph('');
+      var breakPara = lastChild.getType() === DocumentApp.ElementType.PARAGRAPH ? lastChild.asParagraph() : body.appendParagraph(' ');
       breakPara.appendPageBreak();
       shrinkParagraph_(breakPara);
     }
     var table;
     if (page.type === 'wide') {
-      table = body.appendTable([['']]);
+      table = body.appendTable([[' ']]);
       table.setBorderWidth(0);
       table.setColumnWidth(0, g.contentWidth);
       prepareCell_(table.getCell(0, 0), g.contentWidth);
       fillContainer_(table.getCell(0, 0), page.left, true);
     } else {
-      table = body.appendTable([['', '']]);
+      table = body.appendTable([[' ', ' ']]);
       table.setBorderWidth(0);
       table.setColumnWidth(0, g.halfCellWidth);
       table.setColumnWidth(1, g.halfCellWidth);

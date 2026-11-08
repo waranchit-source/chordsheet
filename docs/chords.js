@@ -1,11 +1,10 @@
 (function (global) {
   var SHARP = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
   var FLAT = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
+  var AUTO = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'G#', 'A', 'Bb', 'B'];
   var NOTE_INDEX = { 'C': 0, 'B#': 0, 'C#': 1, 'Db': 1, 'D': 2, 'D#': 3, 'Eb': 3, 'E': 4, 'Fb': 4, 'E#': 5, 'F': 5, 'F#': 6, 'Gb': 6, 'G': 7, 'G#': 8, 'Ab': 8, 'A': 9, 'A#': 10, 'Bb': 10, 'B': 11, 'Cb': 11 };
   var MAJOR_KEY_NAMES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
   var MINOR_KEY_NAMES = ['Cm', 'C#m', 'Dm', 'Ebm', 'Em', 'Fm', 'F#m', 'Gm', 'G#m', 'Am', 'Bbm', 'Bm'];
-  var MAJOR_FLAT_PCS = [1, 3, 5, 8, 10];
-  var MINOR_FLAT_PCS = [0, 2, 3, 5, 7, 10];
   var CHORD_RE = /^([A-G])([#b]?)([^\/\s]*)(?:\/([A-G])([#b]?))?$/;
   var QUALITY_RE = /^(m|min|maj|M|dim|aug|sus|add|\+|-|°|ø|[0-9]|\(|\)|b|#|alt|no)*$/;
   var SECTION_LABEL_RE = /^\s*(intro|verse|chorus|pre[\s-]?chorus|bridge|solo|outro|outtro|midtro|interlude|instrumental|tag|ending|coda|last\s*line|refrain|hook|ท่อน|ฮุค|สร้อย|ดนตรี|จบ)/i;
@@ -49,91 +48,66 @@
     return { pc: NOTE_INDEX[name], minor: !!m[3] };
   }
 
-  function keyName(pc, minor) {
-    return minor ? MINOR_KEY_NAMES[mod12(pc)] : MAJOR_KEY_NAMES[mod12(pc)];
+  function noteNames(accidental) {
+    if (accidental === 'sharp') {
+      return SHARP;
+    }
+    if (accidental === 'flat') {
+      return FLAT;
+    }
+    return AUTO;
   }
 
-  function transposeKey(key, shift) {
+  function noteName(pc, names) {
+    return (names || AUTO)[mod12(pc)];
+  }
+
+  function formatKey(key) {
+    var m = /^\s*([A-G])([#b]?)(m|min|minor)?\s*$/i.exec(String(key || ''));
+    if (!m || !parseKey(key)) {
+      return '';
+    }
+    return m[1].toUpperCase() + (m[2] || '') + (m[3] ? 'm' : '');
+  }
+
+  function transposeKey(key, shift, names) {
     var k = parseKey(key);
     if (!k) {
       return '';
     }
-    return keyName(k.pc + shift, k.minor);
+    return noteName(k.pc + shift, names) + (k.minor ? 'm' : '');
   }
 
-  function countAccidentals(content) {
-    var sharps = 0;
-    var flats = 0;
-    String(content || '').replace(/\[([^\]]*)\]/g, function (all, inner) {
-      inner.split(/\s+/).forEach(function (t) {
-        var m = CHORD_RE.exec(t);
-        if (m) {
-          if (m[2] === '#' || m[5] === '#') {
-            sharps++;
-          }
-          if (m[2] === 'b' || m[5] === 'b') {
-            flats++;
-          }
-        }
-      });
-      return all;
-    });
-    return { sharps: sharps, flats: flats };
-  }
-
-  function preferFlats(originalKey, shift, mode, content) {
-    if (mode === 'sharp') {
-      return false;
-    }
-    if (mode === 'flat') {
-      return true;
-    }
-    var k = parseKey(originalKey);
-    if (k) {
-      var pc = mod12(k.pc + shift);
-      return k.minor ? MINOR_FLAT_PCS.indexOf(pc) >= 0 : MAJOR_FLAT_PCS.indexOf(pc) >= 0;
-    }
-    var acc = countAccidentals(content);
-    return acc.flats > acc.sharps;
-  }
-
-  function noteName(pc, flats) {
-    return (flats ? FLAT : SHARP)[mod12(pc)];
-  }
-
-  function transposeChord(token, shift, flats) {
+  function transposeChord(token, shift, names) {
     var c = parseChord(token);
     if (!c) {
       return token;
     }
-    var out = noteName(c.root + shift, flats) + c.quality;
+    var out = noteName(c.root + shift, names) + c.quality;
     if (c.bass !== null) {
-      out += '/' + noteName(c.bass + shift, flats);
+      out += '/' + noteName(c.bass + shift, names);
     }
     return out;
   }
 
-  function transposeBracket(inner, shift, flats) {
+  function transposeBracket(inner, shift, names) {
     return inner.replace(/[^\s]+/g, function (t) {
-      return transposeChord(t, shift, flats);
+      return transposeChord(t, shift, names);
     });
   }
 
-  function transposeContent(content, shift, flats) {
+  function transposeContent(content, shift, names) {
     return String(content || '').replace(/\[([^\]]*)\]/g, function (all, inner) {
-      return '[' + transposeBracket(inner, shift, flats) + ']';
+      return '[' + transposeBracket(inner, shift, names) + ']';
     });
   }
 
   function prepareForOutput(song, shift, accidental) {
-    var flats = preferFlats(song.originalKey, shift, accidental, song.content);
-    var content = mod12(shift) === 0 && accidental === 'auto' ? song.content : transposeContent(song.content, shift, flats);
-    var key = transposeKey(song.originalKey, shift);
-    if (key && accidental !== 'auto') {
-      var k = parseKey(key);
-      key = noteName(k.pc, flats) + (k.minor ? 'm' : '');
-    }
-    return { content: content, key: key, flats: flats };
+    var names = noteNames(accidental);
+    var asWritten = mod12(shift) === 0 && accidental === 'auto';
+    var content = asWritten ? song.content : transposeContent(song.content, shift, names);
+    var key = asWritten ? formatKey(song.originalKey) : transposeKey(song.originalKey, shift, names);
+    return { content: content, key: key };
   }
 
   function parseLine(line) {
@@ -569,13 +543,13 @@
   global.Chords = {
     SHARP: SHARP,
     FLAT: FLAT,
+    AUTO: AUTO,
     MAJOR_KEY_NAMES: MAJOR_KEY_NAMES,
     MINOR_KEY_NAMES: MINOR_KEY_NAMES,
     parseChord: parseChord,
     isChordToken: isChordToken,
     parseKey: parseKey,
     transposeKey: transposeKey,
-    preferFlats: preferFlats,
     transposeChord: transposeChord,
     transposeContent: transposeContent,
     prepareForOutput: prepareForOutput,

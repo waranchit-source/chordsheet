@@ -478,6 +478,7 @@
 
   function hideChrome() {
     toggleMenu(false);
+    document.body.classList.remove('has-dock');
     $('topbar').classList.add('hide');
   }
 
@@ -504,6 +505,7 @@
 
   function render() {
     $('topbar').classList.remove('hide');
+    document.body.classList.toggle('has-dock', state.view === 'song');
     renderNav();
     var v = state.view;
     if (v === 'library') { renderLibrary(); }
@@ -1017,14 +1019,17 @@
       (can('admin') ? '<button type="button" class="btn danger" id="btnDel">' + btnLabel('trash', t('common.delete')) + '</button>' : '') +
       (can('leader') ? '<button type="button" class="btn primary" id="btnAdd">' + btnLabel('list-plus', t('song.addToSet')) + '</button>' : '') +
       '</div></div><div class="sp-16"></div>' +
-      '<div class="row">' +
-      '<span class="keybox" role="group" aria-label="' + esc(t('song.keyLabel')) + '"><button type="button" id="kDown" aria-label="' + esc(t('song.down')) + '">− ½</button><span class="k" aria-live="polite">' + esc(prepared.key || C.shiftLabel(state.viewShift)) + '</span><button type="button" id="kUp" aria-label="' + esc(t('song.up')) + '">+ ½</button></span>' +
-      '<span class="caption-2 muted">' + esc(t('song.shift', { n: C.shiftLabel(state.viewShift) })) + '</span>' +
-      '<select id="kAcc" class="auto" aria-label="#/b">' + accOptions(state.viewAcc) + '</select>' +
-      '<button type="button" class="btn sm" id="kReset">' + btnLabel('arrow-counter-clockwise', t('song.resetKey')) + '</button>' +
-      '<span class="keybox" role="group" aria-label="' + esc(t('song.textSize')) + '"><button type="button" id="zOut" aria-label="' + esc(t('song.smaller')) + '">A−</button><span class="k k-sm">' + state.viewZoom + '</span><button type="button" id="zIn" aria-label="' + esc(t('song.larger')) + '">A+</button></span>' +
+      '<div class="row song-tools">' +
+      '<div class="song-dock" id="songDock">' +
+      '<span class="keybox dock-key" role="group" aria-label="' + esc(t('song.keyLabel')) + '"><button type="button" id="kDown" aria-label="' + esc(t('song.down')) + '">− ½</button><span class="k" aria-live="polite">' + esc(prepared.key || C.shiftLabel(state.viewShift)) + '</span><button type="button" id="kUp" aria-label="' + esc(t('song.up')) + '">+ ½</button></span>' +
+      '<button type="button" class="btn sm dock-reset" id="kReset" aria-label="' + esc(t('song.resetKey')) + '">' + ic('arrow-counter-clockwise') + '<span class="dock-label">' + esc(t('song.resetKey')) + '</span></button>' +
+      '<span class="keybox dock-zoom" role="group" aria-label="' + esc(t('song.textSize')) + '"><button type="button" id="zOut" aria-label="' + esc(t('song.smaller')) + '">A−</button><span class="k k-sm">' + state.viewZoom + '</span><button type="button" id="zIn" aria-label="' + esc(t('song.larger')) + '">A+</button></span>' +
+      '</div>' +
+      '<span class="caption-2 muted shift-note">' + esc(t('song.shift', { n: C.shiftLabel(state.viewShift) })) + '</span>' +
+      '<select id="kAcc" class="auto acc-select" aria-label="#/b">' + accOptions(state.viewAcc) + '</select>' +
       '</div></div>' +
-      '<div class="card"><div class="sheet" style="font-size:' + state.viewZoom + 'px">' + C.renderHtml(prepared.content) + '</div></div>';
+      '<div class="card"><div class="sheet" style="font-size:' + state.viewZoom + 'px">' + C.renderHtml(prepared.content) + '</div></div>' +
+      '<div class="dock-spacer" aria-hidden="true"></div>';
     $('backLib').onclick = function () { go('library'); };
     $('kDown').onclick = function () { state.viewShift = shiftStep(state.viewShift, -1); renderSong(); $('kDown').focus(); };
     $('kUp').onclick = function () { state.viewShift = shiftStep(state.viewShift, 1); renderSong(); $('kUp').focus(); };

@@ -59,6 +59,19 @@ Browser (docs/*.js)  --fetch POST text/plain JSON-->  Apps Script doPost (Code.g
   - `toEditable(content)` turns stored content into the no bracket view (Thai inline, English chord line above lyric). A line is only shown without brackets if it round trips exactly; `memo` keeps unchanged lines byte identical on save.
   - `tidy()` = `toEditable(fromEditable())`, used by the Tidy up button and on paste into an empty editor.
 - Editor textarea uses Geist Mono so chord above lyric alignment by character count matches what the user sees.
+- Transpose spelling (owner's rule): `#/b auto` always uses `AUTO = C C# D Eb E F F# G G# A Bb B` for chords and the key label. At shift 0 in auto mode the content and key are shown exactly as written. `Use #` / `Use b` force `SHARP` / `FLAT`. The PDF uses the same `prepareForOutput` result, so screen and print match.
+
+### Google Docs rendering (Render.gs)
+
+- Google Docs throws "Cannot insert an empty text element" for empty strings in `appendParagraph`, `appendTable` cells and similar calls. Never pass `''`: use `docText_()` (turns `''` into `' '`) and `' '` for table cells. Blank lines, empty note lines and empty right columns all hit this (fixed 2026-11-08; the original version failed on every song with a blank line).
+
+### Mobile
+
+- Breakpoints: tables turn into stacked cards at 720px, phone layout at 640px, hamburger menu below 1200px.
+- Song page on phones: the key, reset and zoom controls live in `.song-dock`. On desktop it is `display: contents` and CSS `order` keeps the original row order; at 640px and below it becomes a fixed bottom bar, `body.has-dock` lifts the toasts above it and `.dock-spacer` keeps the last lines readable.
+- Safe area insets (`env(safe-area-inset-*)`) are applied to the nav, page padding, menu, toasts and dock (`viewport-fit=cover`).
+- `touch-action: manipulation` stops double tap zoom on rapid +½ taps; inputs and textareas are 16px on touch devices so iOS does not zoom.
+- Home screen install: `docs/manifest.webmanifest` plus PNG icons in `docs/icons/` (192, 512, maskable 512, apple touch 180). The PNGs were drawn from the favicon shapes with a small Node script (zlib PNG encoder); regenerate the same way if the logo changes. No service worker on purpose, so updates are never stuck in a cache.
 
 ## Design system (from github.com/elayadesign/ai-design-skills, landing-page-design Part B + figma-designer tokens)
 
@@ -82,7 +95,7 @@ Browser (docs/*.js)  --fetch POST text/plain JSON-->  Apps Script doPost (Code.g
 
 ## Testing
 
-No test suite lives in the repo. To test end to end, run the `.gs` files in Node with mocked Apps Script services (SpreadsheetApp, CacheService, LockService, Utilities, ContentService, HtmlService, DriveApp, DocumentApp, PropertiesService) inside a `vm` context, serve `docs/` over HTTP with `/config.js` overridden to `API_URL: '/api'`, and route `POST /api` to `doPost`. Then drive the UI in a browser. Also unit test `docs/chords.js` round trips (`toEditable` then `fromEditable` must return the stored content unchanged).
+No test suite lives in the repo. Make the mock strict like real Google: `getRange` past the last row must throw, and Docs calls with empty text must throw "Cannot insert an empty text element" (both bugs reached production because an early mock was lenient). To test end to end, run the `.gs` files in Node with mocked Apps Script services (SpreadsheetApp, CacheService, LockService, Utilities, ContentService, HtmlService, DriveApp, DocumentApp, PropertiesService) inside a `vm` context, serve `docs/` over HTTP with `/config.js` overridden to `API_URL: '/api'`, and route `POST /api` to `doPost`. Then drive the UI in a browser. Also unit test `docs/chords.js` round trips (`toEditable` then `fromEditable` must return the stored content unchanged).
 
 ## Sheet grid limits
 
