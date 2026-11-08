@@ -7,7 +7,7 @@ Project notes for Claude Code. Read this before changing anything.
 Worship team "Lyrics & Chords" system (Thai church). Song library with chord transposing, setlist builder that produces A4 PDF / Google Doc files (2 songs per page), setlist history and usage stats.
 
 - **Frontend**: static site in `docs/`, served by GitHub Pages from branch `main`, folder `/docs`.
-  Live URL: https://waranchit-source.github.io/chordsheet/ (repo `waranchit-source/chordsheet`).
+  Live URL: https://waranchit-source.github.io/chordsheet/ (repo `waranchit-source/chordsheet`, public because the account plan only serves Pages from public repos; the owner approved this on 2026-11-08).
 - **Backend**: Google Apps Script bound to the Google Sheet "Worship song" in the owner's personal Google account (not the paperplanebkk.com work account). All `.gs` files plus `appsscript.json` at the repo root are pasted into the Apps Script editor by hand and deployed as a Web app (Execute as: Me, Access: Anyone). The `/exec` URL goes into `docs/config.js` (`API_URL`).
 - **Data**: stays in the Google Sheet. Sheets: `Users`, `Songs`, `Setlists`, `UsageLog`, `Sessions`. Column order is defined by `HEADERS` in `Config.gs`; rows are read and written by position.
 
