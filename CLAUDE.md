@@ -49,6 +49,7 @@ Browser (docs/*.js)  --fetch POST text/plain JSON-->  Apps Script doPost (Code.g
 - Remember me: `login(username, password, true)` also stores `sha256('session:' + token)` in sheet `Sessions` with a 30 day sliding expiry. On a cache miss `requireSession_` restores the session from that sheet and re-checks the user is approved and active. Client keeps the token in localStorage (remember) or sessionStorage (not remembered).
 - Registration: `register()` creates `Status = pending`, `Active = false`, role viewer. Admin approves or rejects in Users > Requests (`reviewUser`). Rejected usernames can register again. Blank `Status` means approved (legacy rows).
 - Never nest `withLock_` calls. `deleteSessionsWhere_` does not lock; callers lock.
+- Login lock: 5 failed attempts set `fail_<username>` in the script cache and block that username for 10 minutes, even with the right password. `resetAdminPassword()` (run from the Apps Script editor, no deploy needed) also removes `fail_admin`, so the admin can sign in right away.
 
 ### Chords (docs/chords.js)
 

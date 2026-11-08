@@ -94,7 +94,9 @@ function resetAdminPassword() {
     user.Status = USER_STATUS.APPROVED;
     updateRow_(SHEETS.USERS, user._row, user);
   });
+  CacheService.getScriptCache().remove('fail_admin');
   Logger.log('รหัสผ่านใหม่ของ admin: ' + password);
+  Logger.log('ปลดล็อกการเข้าสู่ระบบของ admin แล้ว เข้าสู่ระบบได้ทันที');
   return password;
 }
 

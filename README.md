@@ -57,7 +57,9 @@
 6. **Deploy → New deployment** → Web app → Execute as: **Me** → Who has access: **Anyone** → **Deploy**
 7. นำ Web app URL ไปใส่ใน `docs/config.js` แล้ว push ขึ้น GitHub
 
-ถ้าลืมรหัส admin: เลือกฟังก์ชัน `resetAdminPassword` → Run → ดูรหัสใหม่ใน Execution log
+ถ้าลืมรหัส admin หรือ admin ถูกล็อกเพราะกรอกผิด 5 ครั้ง: เลือกไฟล์ `Setup.gs` → ฟังก์ชัน `resetAdminPassword` → Run → ดูรหัสใหม่ใน Execution log แล้วเข้าสู่ระบบได้ทันที (ระบบปลดล็อกให้ ไม่ต้อง Deploy ใหม่) จากนั้นเปลี่ยนรหัสผ่านที่เมนู My account
+
+หมายเหตุ: ช่อง `PasswordHash` ในชีต `Users` เป็นรหัสยาว 64 ตัวอักษรเสมอ เพราะระบบเก็บรหัสผ่านแบบเข้ารหัส (hash) เวลาเข้าสู่ระบบให้ใช้รหัสผ่านที่พิมพ์ตอนสมัคร
 
 ## อัปเดตโค้ดหลังแก้ไข
 
