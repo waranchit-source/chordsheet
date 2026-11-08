@@ -62,7 +62,12 @@ function appendRows_(name, objs) {
   }
   var sheet = getSheet_(name);
   var rows = objs.map(function (o) { return rowFromObject_(name, o); });
-  sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, HEADERS[name].length).setValues(rows);
+  var start = sheet.getLastRow() + 1;
+  var missing = start + rows.length - 1 - sheet.getMaxRows();
+  if (missing > 0) {
+    sheet.insertRowsAfter(sheet.getMaxRows(), missing);
+  }
+  sheet.getRange(start, 1, rows.length, HEADERS[name].length).setValues(rows);
 }
 
 function updateRow_(name, rowNumber, obj) {

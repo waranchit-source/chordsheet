@@ -83,9 +83,9 @@ Browser (docs/*.js)  --fetch POST text/plain JSON-->  Apps Script doPost (Code.g
 
 No test suite lives in the repo. To test end to end, run the `.gs` files in Node with mocked Apps Script services (SpreadsheetApp, CacheService, LockService, Utilities, ContentService, HtmlService, DriveApp, DocumentApp, PropertiesService) inside a `vm` context, serve `docs/` over HTTP with `/config.js` overridden to `API_URL: '/api'`, and route `POST /api` to `doPost`. Then drive the UI in a browser. Also unit test `docs/chords.js` round trips (`toEditable` then `fromEditable` must return the stored content unchanged).
 
-## Known issue (not fixed, reported to owner)
+## Sheet grid limits
 
-- `appendRows_` in `Db.gs` writes with `getRange(lastRow + 1, ...)`. Real Sheets throws when that range goes past the sheet's last row, so `UsageLog` can fail once it reaches the bottom of its grid (1000 rows by default). Fix would be to insert rows before writing.
+- Real Sheets throws "The coordinates of the range are outside the dimensions of the sheet" when `getRange` goes past `getMaxRows()`. `appendRow` grows the sheet by itself, but a multi row `setValues` does not, so `appendRows_` in `Db.gs` calls `insertRowsAfter` first when the batch would pass the last row (fixed 2026-11-08; before that `generateSetlist` failed once `UsageLog` reached 1000 rows). Any new bulk write must do the same.
 
 ## Branches
 
