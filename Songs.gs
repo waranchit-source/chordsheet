@@ -10,6 +10,7 @@ function songToClient_(s, withContent) {
     originalKey: String(s.OriginalKey || ''),
     defaultLayout: String(s.DefaultLayout || 'auto'),
     tags: String(s.Tags || ''),
+    categories: parseCategoryIds_(s.Categories),
     createdBy: String(s.CreatedBy || ''),
     createdAt: toIso_(s.CreatedAt),
     updatedBy: String(s.UpdatedBy || ''),
@@ -83,6 +84,7 @@ function saveSong(token, data) {
   var layout = ['auto', 'half', 'full'].indexOf(data.defaultLayout) >= 0 ? data.defaultLayout : 'auto';
   return withLock_(function () {
     var now = new Date();
+    var categories = Array.isArray(data.categories) ? categoryIdsToCell_(cleanCategoryIds_(data.categories, categoryIdSet_())) : null;
     if (data.id) {
       var s = findBy_(SHEETS.SONGS, 'SongId', data.id);
       if (!s || isDeleted_(s.Deleted)) {
@@ -94,6 +96,9 @@ function saveSong(token, data) {
       s.Content = content;
       s.DefaultLayout = layout;
       s.Tags = String(data.tags || '').trim();
+      if (categories !== null) {
+        s.Categories = categories;
+      }
       s.UpdatedBy = session.displayName;
       s.UpdatedAt = now;
       updateRow_(SHEETS.SONGS, s._row, s);
@@ -117,7 +122,8 @@ function saveSong(token, data) {
       CreatedAt: now,
       UpdatedBy: session.displayName,
       UpdatedAt: now,
-      Deleted: false
+      Deleted: false,
+      Categories: categories || ''
     };
     appendRow_(SHEETS.SONGS, record);
     return songToClient_(record, true);
@@ -151,6 +157,7 @@ function saveSongs(token, list) {
       content: content,
       layout: ['auto', 'half', 'full'].indexOf(data.defaultLayout) >= 0 ? data.defaultLayout : 'auto',
       tags: String(data.tags || '').trim(),
+      categories: Array.isArray(data.categories) ? data.categories : [],
       allowDuplicate: data.allowDuplicate === true
     };
   });
@@ -162,6 +169,7 @@ function saveSongs(token, list) {
       }
     });
     var now = new Date();
+    var valid = categoryIdSet_();
     var ids = {};
     var skipped = [];
     var records = [];
@@ -187,7 +195,8 @@ function saveSongs(token, list) {
         CreatedAt: now,
         UpdatedBy: session.displayName,
         UpdatedAt: now,
-        Deleted: false
+        Deleted: false,
+        Categories: categoryIdsToCell_(cleanCategoryIds_(d.categories, valid))
       });
     });
     appendRows_(SHEETS.SONGS, records);

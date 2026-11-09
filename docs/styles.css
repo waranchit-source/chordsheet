@@ -597,6 +597,22 @@ table.list tbody tr:hover td { background: var(--surface-subtle); }
 .hist-actions { display: flex; flex-wrap: wrap; gap: var(--s-75); margin-top: auto; }
 
 .row.center { justify-content: center; }
+span.f { display: block; font-size: 14px; line-height: 20px; font-weight: 500; color: var(--text-secondary); margin-bottom: var(--s-50); }
+.chip { display: inline-flex; align-items: center; gap: var(--s-75); min-height: 36px; padding: var(--s-50) var(--s-100); border: 1px solid var(--border-strong); border-radius: var(--r-full); background: var(--surface-card); color: var(--text-secondary); font-size: 14px; line-height: 20px; font-weight: 500; cursor: pointer; transition: background-color var(--dur-color) var(--ease), color var(--dur-color) var(--ease), border-color var(--dur-color) var(--ease); }
+.chip:hover { background: var(--surface-hover); color: var(--text-primary); }
+.chip.active, .chip:has(input:checked) { background: var(--surface-selected); border-color: var(--action-primary); color: var(--text-info); }
+.chip-n { font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-tertiary); }
+.chip.active .chip-n { color: var(--text-info); }
+.chip input { width: 16px; height: 16px; margin: 0; accent-color: var(--action-primary); }
+.chip:has(input:focus-visible) { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.cat-filter, .cat-pick { display: flex; flex-wrap: wrap; gap: var(--s-75); }
+.cat-add { display: flex; align-items: flex-end; gap: var(--s-100); flex-wrap: wrap; }
+.cat-add .field { flex: 1; min-width: 200px; }
+.cat-add .btn { margin-bottom: 0; }
+.cat-add:has(.field-error:not([hidden])) .btn { margin-bottom: calc(var(--s-50) + 16px); }
+.cat-name { display: inline-flex; align-items: center; gap: var(--s-75); }
+.cat-name .ph { color: var(--text-tertiary); font-size: 16px; }
+.tags .pill .ph { font-size: 12px; }
 .imp-pending { align-items: center; }
 .imp-pending .btn { flex: none; }
 .imp-summary { display: flex; flex-wrap: wrap; gap: var(--s-75); }

@@ -10,8 +10,8 @@
     en: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
   };
   var KEY_OPTIONS = C.MAJOR_KEY_NAMES.concat(['C#', 'Gb', 'Cb']).concat(C.MINOR_KEY_NAMES).concat(['D#m', 'Abm', 'A#m']);
-  var PERMS = ['songs.view', 'songs.edit', 'songs.delete', 'setlist.create', 'history.view', 'setlist.delete', 'stats.view', 'users.manage'];
-  var PERM_NEEDS = { 'songs.edit': ['songs.view'], 'songs.delete': ['songs.view'], 'setlist.create': ['songs.view'], 'setlist.delete': ['history.view'] };
+  var PERMS = ['songs.view', 'songs.edit', 'songs.delete', 'categories.manage', 'setlist.create', 'history.view', 'setlist.delete', 'stats.view', 'users.manage'];
+  var PERM_NEEDS = { 'songs.edit': ['songs.view'], 'songs.delete': ['songs.view'], 'categories.manage': ['songs.view'], 'setlist.create': ['songs.view'], 'setlist.delete': ['history.view'] };
   var ROLE_PERMS = { viewer: ['songs.view', 'history.view', 'stats.view'], leader: ['songs.view', 'songs.edit', 'setlist.create', 'history.view', 'stats.view'], admin: PERMS };
   var LAYOUTS = ['auto', 'half', 'full'];
   var ACCS = ['auto', 'sharp', 'flat'];
@@ -55,6 +55,8 @@
     authDraft: {},
     sidebarOpen: document.documentElement.classList.contains('sb-open'),
     statsKey: '',
+    categories: [],
+    catFilter: '',
     reveal: false,
     importDraft: null,
     importBusy: null,
@@ -138,7 +140,7 @@
 
   function saveCache() {
     try {
-      localStorage.setItem('cs_cache', JSON.stringify({ songs: state.songs, leaders: state.leaders }));
+      localStorage.setItem('cs_cache', JSON.stringify({ songs: state.songs, leaders: state.leaders, categories: state.categories }));
     } catch (e) {
       try {
         localStorage.removeItem('cs_cache');
@@ -175,6 +177,9 @@
     }
     if (Array.isArray(data.leaders)) {
       state.leaders = data.leaders;
+    }
+    if (Array.isArray(data.categories)) {
+      state.categories = data.categories;
     }
     state.pendingCount = Number(data.pendingCount) || 0;
     saveCache();
@@ -433,7 +438,7 @@
     return t('role.custom');
   }
 
-  var VIEW_PERM = { library: 'songs.view', song: 'songs.view', editor: 'songs.edit', builder: 'setlist.create', history: 'history.view', stats: 'stats.view', users: 'users.manage', import: 'songs.edit', account: '' };
+  var VIEW_PERM = { library: 'songs.view', song: 'songs.view', editor: 'songs.edit', builder: 'setlist.create', history: 'history.view', stats: 'stats.view', users: 'users.manage', import: 'songs.edit', categories: 'categories.manage', account: '' };
 
   function viewAllowed(view) {
     var need = VIEW_PERM[view];
@@ -441,7 +446,7 @@
   }
 
   function firstView() {
-    var order = ['library', 'builder', 'history', 'stats', 'users'];
+    var order = ['library', 'builder', 'history', 'stats', 'categories', 'users'];
     for (var i = 0; i < order.length; i++) {
       if (viewAllowed(order[i])) {
         return order[i];
@@ -600,6 +605,8 @@
     state.usersLoaded = false;
     state.songs = [];
     state.songsLoaded = false;
+    state.categories = [];
+    state.catFilter = '';
     state.setlists = [];
     state.setlistsLoaded = false;
     state.stats = null;
@@ -619,6 +626,7 @@
     var count = state.builder && state.builder.items.length ? state.builder.items.length : 0;
     return [
       ['library', 'music-notes', t('nav.library'), 'songs.view'],
+      ['categories', 'tag', t('nav.categories'), 'categories.manage'],
       ['builder', 'playlist', t('nav.builder') + (count ? ' (' + count + ')' : ''), 'setlist.create'],
       ['history', 'clock-counter-clockwise', t('nav.history'), 'history.view'],
       ['stats', 'chart-bar', t('nav.stats'), 'stats.view'],
@@ -706,6 +714,7 @@
     else if (v === 'song') { renderSong(); }
     else if (v === 'editor') { renderEditor(); }
     else if (v === 'import') { renderImport(); }
+    else if (v === 'categories') { renderCategories(); }
     else if (v === 'builder') { renderBuilder(); }
     else if (v === 'history') { renderHistory(); }
     else if (v === 'stats') { renderStats(); }
@@ -1081,6 +1090,8 @@
       renderLibraryList();
     } else if (state.view === 'builder' && builderChanged) {
       renderBuilder();
+    } else if (state.view === 'categories') {
+      renderCategoryList();
     }
   }
 
@@ -1109,7 +1120,7 @@
     if (!q) {
       return true;
     }
-    var hay = (s.title + ' ' + s.artist + ' ' + s.tags + ' ' + (s.searchText || '')).toLowerCase();
+    var hay = (s.title + ' ' + s.artist + ' ' + songCategories(s).map(function (c) { return c.name; }).join(' ') + ' ' + (s.searchText || '')).toLowerCase();
     return q.toLowerCase().split(/\s+/).filter(Boolean).every(function (w) { return hay.indexOf(w) >= 0; });
   }
 
@@ -1122,7 +1133,7 @@
       '<div class="row"><div class="search grow">' + ic('magnifying-glass') + '<input type="search" id="libSearch" aria-label="' + esc(t('library.search')) + '" placeholder="' + esc(t('library.search')) + '" value="' + esc(state.search) + '"></div>' +
       '<select id="libSort" class="auto" aria-label="' + esc(t('library.sortLabel')) + '">' +
       '<option value="title">' + esc(t('library.sortTitle')) + '</option><option value="uses">' + esc(t('library.sortUses')) + '</option><option value="last">' + esc(t('library.sortLast')) + '</option><option value="updated">' + esc(t('library.sortUpdated')) + '</option>' +
-      '</select></div></div>' +
+      '</select></div><div id="libCats"></div></div>' +
       '<div class="card"><div id="libList"></div></div>';
     $('libSort').value = state.sort;
     $('libSearch').oninput = function () { state.search = this.value; renderLibraryList(); };
@@ -1151,7 +1162,7 @@
   }
 
   function sortedSongs() {
-    var list = state.songs.filter(function (s) { return songMatches(s, state.search); });
+    var list = state.songs.filter(function (s) { return songMatches(s, state.search) && (!state.catFilter || (s.categories || []).indexOf(state.catFilter) >= 0); });
     var sorters = {
       title: function (a, b) { return a.title.localeCompare(b.title, 'th'); },
       uses: function (a, b) { return b.useCount - a.useCount || a.title.localeCompare(b.title, 'th'); },
@@ -1170,8 +1181,9 @@
       el.innerHTML = skeleton(6);
       return;
     }
+    renderCategoryFilter();
     var list = sortedSongs();
-    $('libCount').textContent = tCount('library.count', state.songs.length) + (state.search ? t('library.found', { n: list.length }) : '');
+    $('libCount').textContent = tCount('library.count', state.songs.length) + (state.search || state.catFilter ? t('library.found', { n: list.length }) : '');
     if (!state.songs.length) {
       el.innerHTML = emptyState('music-notes', t('library.emptyTitle'), can('songs.edit') ? t('library.emptyText') : t('library.emptyTextViewer'),
         can('songs.edit') ? '<div class="row center"><button type="button" class="btn" id="emptyImport">' + btnLabel('file-arrow-up', t('import.button')) + '</button><button type="button" class="btn primary" id="emptyAdd">' + btnLabel('plus', t('library.add')) + '</button></div>' : '');
@@ -1195,7 +1207,7 @@
       list.map(function (s) {
         return '<tr><td class="cell-main"><button type="button" class="song-title-link" data-open="' + esc(s.id) + '">' + esc(s.title) + '</button>' +
           (s.artist ? '<div class="caption-2 muted">' + esc(s.artist) + '</div>' : '') +
-          (s.tags ? '<div class="tags">' + s.tags.split(',').map(function (tg) { return tg.trim() ? '<span class="pill gray">' + esc(tg.trim()) + '</span>' : ''; }).join('') + '</div>' : '') +
+          categoryPills(s) +
           '</td><td data-label="' + esc(t('library.colKey')) + '">' + (s.originalKey ? '<span class="pill">' + esc(s.originalKey) + '</span>' : '<span class="muted">-</span>') + '</td>' +
           '<td data-label="' + esc(t('library.colUses')) + '">' + esc(tCount('library.times', s.useCount)) + '</td>' +
           '<td data-label="' + esc(t('library.colLast')) + '">' + (s.lastUsed ? esc(shortDate(s.lastUsed)) : '<span class="muted">-</span>') + '</td>' +
@@ -1259,7 +1271,7 @@
       '<div class="card">' +
       '<div class="row"><button type="button" class="btn sm ghost" id="backLib">' + btnLabel('arrow-left', t('common.back')) + '</button></div><div class="sp-12"></div>' +
       '<div class="row"><div class="grow"><h1 class="heading-5">' + esc(s.title) + '</h1>' +
-      '<div class="caption-2 muted">' + (s.artist ? esc(s.artist) + ' · ' : '') + esc(t('song.originalKey', { key: s.originalKey || '-' })) + ' · ' + esc(t('song.lastEditedBy', { name: s.updatedBy || '-' })) + '</div></div>' +
+      '<div class="caption-2 muted">' + (s.artist ? esc(s.artist) + ' · ' : '') + esc(t('song.originalKey', { key: s.originalKey || '-' })) + ' · ' + esc(t('song.lastEditedBy', { name: s.updatedBy || '-' })) + '</div>' + categoryPills(s) + '</div>' +
       '<div class="row">' +
       (can('songs.edit') ? '<button type="button" class="btn" id="btnEdit">' + btnLabel('pencil-simple', t('common.edit')) + '</button>' : '') +
       (can('songs.delete') ? '<button type="button" class="btn danger" id="btnDel">' + btnLabel('trash', t('common.delete')) + '</button>' : '') +
@@ -1317,7 +1329,8 @@
   }
 
   function openEditor(song) {
-    var base = song ? JSON.parse(JSON.stringify(song)) : { id: '', title: '', artist: '', originalKey: '', tags: '', defaultLayout: 'auto', content: '' };
+    var base = song ? JSON.parse(JSON.stringify(song)) : { id: '', title: '', artist: '', originalKey: '', tags: '', categories: [], defaultLayout: 'auto', content: '' };
+    base.categories = Array.isArray(base.categories) ? base.categories.slice() : [];
     var ed = C.toEditable(base.content || '');
     base.text = ed.text;
     base.memo = ed.memo;
@@ -1342,7 +1355,7 @@
       field('edKey', t('editor.fKey'), '<input type="text" id="edKey" list="keyList" value="' + esc(s.originalKey) + '" placeholder="' + esc(t('editor.keyPlaceholder')) + '" autocapitalize="none" spellcheck="false">' +
         '<datalist id="keyList">' + KEY_OPTIONS.map(function (k) { return '<option value="' + k + '">'; }).join('') + '</datalist>') +
       field('edLayout', t('editor.fLayout'), '<select id="edLayout">' + LAYOUTS.map(function (l) { return '<option value="' + l + '">' + esc(t('layout.' + l)) + '</option>'; }).join('') + '</select>') +
-      '<div class="span-all">' + field('edTags', t('editor.fTags'), '<input type="text" id="edTags" value="' + esc(s.tags) + '" placeholder="' + esc(t('editor.tagsPlaceholder')) + '">') + '</div>' +
+      '<div class="span-all"><div class="field"><span class="f" id="edCatsLabel">' + esc(t('editor.fCategories')) + '</span>' + categoryPicker(s.categories) + '</div></div>' +
       '</div></div>' +
       '<div class="grid2">' +
       '<div class="card"><div class="row"><h2 class="heading-6 grow">' + esc(t('editor.content')) + '</h2><button type="button" class="btn sm" id="edTidy">' + btnLabel('magic-wand', t('editor.tidy')) + '</button></div><div class="sp-12"></div>' +
@@ -1392,7 +1405,13 @@
     $('edArtist').oninput = function () { s.artist = this.value; };
     $('edKey').oninput = function () { s.originalKey = this.value; setFieldError('edKey', ''); };
     $('edLayout').onchange = function () { s.defaultLayout = this.value; };
-    $('edTags').oninput = function () { s.tags = this.value; };
+    each($('view'), '[data-cat]', function (box) {
+      box.onchange = function () {
+        var on = {};
+        each($('view'), '[data-cat]', function (b) { if (b.checked) { on[b.getAttribute('data-cat')] = true; } });
+        s.categories = state.categories.filter(function (c) { return on[c.id]; }).map(function (c) { return c.id; });
+      };
+    });
     $('edBack').onclick = function () {
       if (s.id && state.current && state.current.id === s.id) {
         show('song');
@@ -1444,7 +1463,8 @@
       artist: $('edArtist').value,
       originalKey: key,
       defaultLayout: $('edLayout').value,
-      tags: $('edTags').value,
+      tags: s.tags || '',
+      categories: s.categories || [],
       content: content,
       allowDuplicate: allowDuplicate
     };
@@ -2559,6 +2579,203 @@
     });
   }
 
+  function songCategories(s) {
+    var ids = s && Array.isArray(s.categories) ? s.categories : [];
+    return state.categories.filter(function (c) { return ids.indexOf(c.id) >= 0; });
+  }
+
+  function categoryPills(s) {
+    var cats = songCategories(s);
+    if (!cats.length) {
+      return '';
+    }
+    return '<div class="tags">' + cats.map(function (c) {
+      return '<span class="pill gray">' + ic('tag') + '<span>' + esc(c.name) + '</span></span>';
+    }).join('') + '</div>';
+  }
+
+  function categoryCounts() {
+    var counts = {};
+    state.songs.forEach(function (s) {
+      (s.categories || []).forEach(function (id) { counts[id] = (counts[id] || 0) + 1; });
+    });
+    return counts;
+  }
+
+  function categoryFilterBar() {
+    if (!state.categories.length) {
+      return '';
+    }
+    var counts = categoryCounts();
+    var chip = function (id, name, n) {
+      var active = state.catFilter === id;
+      return '<button type="button" class="chip' + (active ? ' active' : '') + '" data-cat-filter="' + esc(id) + '" aria-pressed="' + (active ? 'true' : 'false') + '"><span>' + esc(name) + '</span><span class="chip-n">' + n + '</span></button>';
+    };
+    return '<div class="cat-filter" role="group" aria-label="' + esc(t('categories.filter')) + '">' + chip('', t('categories.all'), state.songs.length) +
+      state.categories.map(function (c) { return chip(c.id, c.name, counts[c.id] || 0); }).join('') + '</div>';
+  }
+
+  function renderCategoryFilter() {
+    var el = $('libCats');
+    if (!el) {
+      return;
+    }
+    if (state.catFilter && !state.categories.some(function (c) { return c.id === state.catFilter; })) {
+      state.catFilter = '';
+    }
+    var html = categoryFilterBar();
+    el.innerHTML = html ? '<div class="sp-12"></div>' + html : '';
+    each(el, '[data-cat-filter]', function (b) {
+      b.onclick = function () {
+        state.catFilter = b.getAttribute('data-cat-filter');
+        renderLibraryList();
+      };
+    });
+  }
+
+  function categoryPicker(selected) {
+    if (!state.categories.length) {
+      return '<p class="caption-2 muted">' + esc(can('categories.manage') ? t('categories.noneYetManager') : t('categories.noneYet')) + '</p>';
+    }
+    return '<div class="cat-pick" role="group" aria-labelledby="edCatsLabel">' + state.categories.map(function (c) {
+      var on = (selected || []).indexOf(c.id) >= 0;
+      return '<label class="chip"><input type="checkbox" data-cat="' + esc(c.id) + '"' + (on ? ' checked' : '') + '><span>' + esc(c.name) + '</span></label>';
+    }).join('') + '</div>';
+  }
+
+  function applyCategoryList(list) {
+    if (Array.isArray(list)) {
+      state.categories = list;
+      var valid = {};
+      list.forEach(function (c) { valid[c.id] = true; });
+      state.songs.forEach(function (s) {
+        if (Array.isArray(s.categories)) {
+          s.categories = s.categories.filter(function (id) { return valid[id]; });
+        }
+      });
+      saveCache();
+    }
+  }
+
+  function renderCategories() {
+    $('view').innerHTML = '<div class="card"><h1 class="heading-5">' + esc(t('categories.title')) + '</h1><div class="caption-2 muted">' + esc(t('categories.subtitle')) + '</div><div class="sp-16"></div>' +
+      '<form id="catForm" class="cat-add" novalidate>' + field('catName', t('categories.fName'), '<input type="text" id="catName" maxlength="40" autocomplete="off" placeholder="' + esc(t('categories.placeholder')) + '">') +
+      '<button type="submit" class="btn primary" id="catAdd">' + btnLabel('plus', t('categories.add')) + '</button></form></div>' +
+      '<div class="card"><div id="catList"></div></div>';
+    $('catForm').onsubmit = function (e) {
+      e.preventDefault();
+      var name = $('catName').value.trim();
+      setFieldError('catName', '');
+      if (!name) {
+        setFieldError('catName', t('err.CATEGORY_NAME_REQUIRED'));
+        $('catName').focus();
+        return;
+      }
+      $('catAdd').disabled = true;
+      api('saveCategory', { name: name }).then(function (list) {
+        applyCategoryList(list);
+        if ($('catName')) {
+          $('catName').value = '';
+          $('catAdd').disabled = false;
+          $('catName').focus();
+        }
+        toast(t('categories.added'));
+        renderCategoryList();
+      }).catch(function (err) {
+        if ($('catAdd')) {
+          $('catAdd').disabled = false;
+        }
+        if (err.message === 'SESSION_EXPIRED') {
+          return;
+        }
+        setFieldError('catName', errMsg(err));
+        $('catName').focus();
+      });
+    };
+    renderCategoryList();
+  }
+
+  function renderCategoryList() {
+    var el = $('catList');
+    if (!el) {
+      return;
+    }
+    if (!state.categories.length) {
+      el.innerHTML = emptyState('tag', t('categories.emptyTitle'), t('categories.emptyText'));
+      return;
+    }
+    var counts = categoryCounts();
+    el.innerHTML = '<table class="list"><thead><tr><th>' + esc(t('categories.colName')) + '</th><th>' + esc(t('categories.colSongs')) + '</th><th><span class="sr-only">' + esc(t('common.actions')) + '</span></th></tr></thead><tbody>' +
+      state.categories.map(function (c) {
+        return '<tr><td class="cell-main"><span class="title-4 cat-name">' + ic('tag') + '<span>' + esc(c.name) + '</span></span></td>' +
+          '<td data-label="' + esc(t('categories.colSongs')) + '">' + esc(tCount('categories.songs', counts[c.id] || 0)) + '</td>' +
+          '<td class="cell-actions"><button type="button" class="btn sm" data-rename="' + esc(c.id) + '">' + btnLabel('pencil-simple', t('categories.rename')) + '</button>' +
+          '<button type="button" class="btn sm danger" data-delcat="' + esc(c.id) + '">' + btnLabel('trash', t('common.delete')) + '</button></td></tr>';
+      }).join('') + '</tbody></table>';
+    var byId = function (id) { return state.categories.filter(function (c) { return c.id === id; })[0]; };
+    each(el, '[data-rename]', function (b) {
+      b.onclick = function () {
+        var c = byId(b.getAttribute('data-rename'));
+        if (c) {
+          renameCategory(c);
+        }
+      };
+    });
+    each(el, '[data-delcat]', function (b) {
+      b.onclick = function () {
+        var c = byId(b.getAttribute('data-delcat'));
+        if (!c) {
+          return;
+        }
+        confirmBox(t((counts[c.id] || 0) === 1 && L.hasOwnInLang('categories.deleteConfirm.one') ? 'categories.deleteConfirm.one' : 'categories.deleteConfirm', { name: c.name, n: counts[c.id] || 0 }), t('common.delete'), true).then(function (ok) {
+          if (!ok) {
+            return;
+          }
+          api('deleteCategory', c.id).then(function (list) {
+            applyCategoryList(list);
+            toast(t('categories.deleted'));
+            renderCategoryList();
+          }).catch(fail);
+        });
+      };
+    });
+  }
+
+  function renameCategory(c) {
+    modal('<h3 class="heading-6" id="modalTitle">' + esc(t('categories.renameTitle')) + '</h3>' +
+      '<form id="crForm" class="form" novalidate>' + field('crName', t('categories.colName'), '<input type="text" id="crName" maxlength="40" autocomplete="off" value="' + esc(c.name) + '">') +
+      '<div class="modal-actions"><button type="button" class="btn" id="crCancel">' + esc(t('common.cancel')) + '</button><button type="submit" class="btn primary" id="crSave">' + esc(t('common.save')) + '</button></div></form>', function () {
+      $('crCancel').onclick = closeModal;
+      $('crForm').onsubmit = function (e) {
+        e.preventDefault();
+        var name = $('crName').value.trim();
+        setFieldError('crName', '');
+        if (!name) {
+          setFieldError('crName', t('err.CATEGORY_NAME_REQUIRED'));
+          return;
+        }
+        if (name === c.name) {
+          closeModal();
+          return;
+        }
+        $('crSave').disabled = true;
+        api('saveCategory', { id: c.id, name: name }).then(function (list) {
+          closeModal();
+          applyCategoryList(list);
+          toast(t('categories.renamed'));
+          renderCategoryList();
+        }).catch(function (err) {
+          if ($('crSave')) {
+            $('crSave').disabled = false;
+          }
+          if (err.message !== 'SESSION_EXPIRED') {
+            setFieldError('crName', errMsg(err));
+          }
+        });
+      };
+    });
+  }
+
   function renderStats() {
     var f = state.statsFilter;
     $('view').innerHTML = '<div class="card"><h1 class="heading-5">' + esc(t('stats.title')) + '</h1><div class="sp-16"></div><div class="row filters">' +
@@ -2973,6 +3190,7 @@
       state.songs = cache.songs;
       state.songsLoaded = true;
       state.leaders = cache.leaders || [];
+      state.categories = Array.isArray(cache.categories) ? cache.categories : [];
       afterLogin();
       fetchBoot().then(function (data) {
         applyBoot(data);

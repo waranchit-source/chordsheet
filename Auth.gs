@@ -224,7 +224,7 @@ function login(username, password, remember) {
 
 function bootData_(session) {
   var users = readTable_(SHEETS.USERS);
-  var data = { songs: hasPerm_(session, 'songs.view') ? songList_() : [], leaders: leaderNames_(users), pendingCount: 0 };
+  var data = { songs: hasPerm_(session, 'songs.view') ? songList_() : [], categories: categoryList_(), leaders: leaderNames_(users), pendingCount: 0 };
   if (hasPerm_(session, 'users.manage')) {
     data.pendingCount = users.filter(function (u) { return userStatus_(u) === USER_STATUS.PENDING; }).length;
   }

@@ -7,15 +7,17 @@ var SHEETS = {
   SONGS: 'Songs',
   SETLISTS: 'Setlists',
   USAGE: 'UsageLog',
-  SESSIONS: 'Sessions'
+  SESSIONS: 'Sessions',
+  CATEGORIES: 'Categories'
 };
 
 var HEADERS = {
   Users: ['Username', 'DisplayName', 'PasswordHash', 'Salt', 'Role', 'Active', 'CreatedAt', 'Status', 'ReviewedBy', 'ReviewedAt', 'Permissions'],
-  Songs: ['SongId', 'Title', 'Artist', 'OriginalKey', 'Content', 'DefaultLayout', 'Tags', 'CreatedBy', 'CreatedAt', 'UpdatedBy', 'UpdatedAt', 'Deleted'],
+  Songs: ['SongId', 'Title', 'Artist', 'OriginalKey', 'Content', 'DefaultLayout', 'Tags', 'CreatedBy', 'CreatedAt', 'UpdatedBy', 'UpdatedAt', 'Deleted', 'Categories'],
   Setlists: ['SetlistId', 'Title', 'ServiceDate', 'Leader', 'Description', 'OutputType', 'DocId', 'PdfId', 'ItemsJson', 'CreatedBy', 'CreatedAt'],
   UsageLog: ['Timestamp', 'SetlistId', 'ServiceDate', 'Leader', 'SongId', 'SongTitle', 'Key', 'Shift'],
-  Sessions: ['TokenHash', 'Username', 'CreatedAt', 'ExpiresAt']
+  Sessions: ['TokenHash', 'Username', 'CreatedAt', 'ExpiresAt'],
+  Categories: ['CategoryId', 'Name', 'CreatedBy', 'CreatedAt']
 };
 
 var ROLES = {
@@ -24,11 +26,12 @@ var ROLES = {
   viewer: 1
 };
 
-var PERMISSIONS = ['songs.view', 'songs.edit', 'songs.delete', 'setlist.create', 'history.view', 'setlist.delete', 'stats.view', 'users.manage'];
+var PERMISSIONS = ['songs.view', 'songs.edit', 'songs.delete', 'categories.manage', 'setlist.create', 'history.view', 'setlist.delete', 'stats.view', 'users.manage'];
 
 var PERMISSION_NEEDS = {
   'songs.edit': ['songs.view'],
   'songs.delete': ['songs.view'],
+  'categories.manage': ['songs.view'],
   'setlist.create': ['songs.view'],
   'setlist.delete': ['history.view']
 };
@@ -64,7 +67,7 @@ var LOGIN_MAX_FAILS = 5;
 var LOGIN_LOCK_SECONDS = 600;
 var REGISTER_MAX_PER_WINDOW = 20;
 var REGISTER_WINDOW_SECONDS = 600;
-var SCHEMA_VERSION = 'schema_v3';
+var SCHEMA_VERSION = 'schema_v4';
 var PERM_VERSION_KEY = 'perm_version';
 var HASH_ROUNDS = 200;
 

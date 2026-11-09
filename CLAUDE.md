@@ -4,12 +4,12 @@ Project notes for Claude Code. Read this before changing anything.
 
 ## What this is
 
-Worship team "Lyrics & Chords" system (Thai church). Song library with chord transposing, Word / PDF import with a review screen, setlist builder that produces A4 PDF / Word files (2 songs per page) downloaded to the user's device, setlist history and usage stats.
+Worship team "Lyrics & Chords" system (Thai church). Song library with chord transposing and categories, Word / PDF import with a review screen, setlist builder that produces A4 PDF / Word files (2 songs per page) downloaded to the user's device, setlist history and usage stats.
 
 - **Frontend**: static site in `docs/`, served by GitHub Pages from branch `main`, folder `/docs`.
   Live URL: https://waranchit-source.github.io/chordsheet/ (repo `waranchit-source/chordsheet`, public because the account plan only serves Pages from public repos; the owner approved this on 2026-11-08).
 - **Backend**: Google Apps Script bound to the Google Sheet "Worship song" in the owner's personal Google account (not the paperplanebkk.com work account). All `.gs` files plus `appsscript.json` at the repo root are pasted into the Apps Script editor by hand and deployed as a Web app (Execute as: Me, Access: Anyone). The `/exec` URL goes into `docs/config.js` (`API_URL`).
-- **Data**: stays in the Google Sheet. Sheets: `Users`, `Songs`, `Setlists`, `UsageLog`, `Sessions`. Column order is defined by `HEADERS` in `Config.gs`; rows are read and written by position.
+- **Data**: stays in the Google Sheet. Sheets: `Users`, `Songs`, `Setlists`, `UsageLog`, `Sessions`, `Categories`. Column order is defined by `HEADERS` in `Config.gs`; rows are read and written by position.
 
 ## Owner's working rules (strict)
 
@@ -48,7 +48,7 @@ Browser (docs/*.js)  --fetch POST text/plain JSON-->  Apps Script doPost (Code.g
 - Session token: random; cached in CacheService for 6 hours (sliding) as `sess_<token>`.
 - Remember me: `login(username, password, true)` also stores `sha256('session:' + token)` in sheet `Sessions` with a 30 day sliding expiry. On a cache miss `requireSession_` restores the session from that sheet and re-checks the user is approved and active. Client keeps the token in localStorage (remember) or sessionStorage (not remembered).
 - Registration: `register()` creates `Status = pending`, `Active = false`, role viewer, `Permissions = []`. Admin approves or rejects in Users > Requests (`reviewUser(token, username, decision, access)`, where `access` is a permission array, or a legacy role string). Rejected usernames can register again. Blank `Status` means approved (legacy rows).
-- Permissions (added 2026-11-09, owner's rule: every switch starts off): `PERMISSIONS` in `Config.gs` = `songs.view`, `songs.edit`, `songs.delete`, `setlist.create`, `history.view`, `setlist.delete`, `stats.view`, `users.manage`. Stored as JSON in the `Users.Permissions` column. `effectivePerms_`: `Role = admin` means all; else the JSON; blank JSON falls back to `ROLE_PERMISSIONS[Role]` so legacy users keep their old access. `normalizePerms_` adds `PERMISSION_NEEDS` (edit, delete and setlist.create need songs.view; setlist.delete needs history.view) and turns `users.manage` into all. `Role` is still written (`roleFromPerms_`) for display and old code.
+- Permissions (added 2026-11-09, owner's rule: every switch starts off): `PERMISSIONS` in `Config.gs` = `songs.view`, `songs.edit`, `songs.delete`, `categories.manage`, `setlist.create`, `history.view`, `setlist.delete`, `stats.view`, `users.manage`. Stored as JSON in the `Users.Permissions` column. `effectivePerms_`: `Role = admin` means all; else the JSON; blank JSON falls back to `ROLE_PERMISSIONS[Role]` so legacy users keep their old access. `normalizePerms_` adds `PERMISSION_NEEDS` (edit, delete, categories.manage and setlist.create need songs.view; setlist.delete needs history.view) and turns `users.manage` into all. `Role` is still written (`roleFromPerms_`) for display and old code.
 - Every server action checks its own permission through `requireSession_(token, perm)`; the frontend only hides what the user cannot do (`VIEW_PERM`, `can()` in `app.js`). New users and users added by admin start with no permissions and only see My account.
 - Permission changes apply on the next request: `saveUser` and `reviewUser` put a new random `perm_version` in the script cache; `requireSession_` reloads the user row when the cached session's `pv` differs. Use a random value, not `Date.now()` (two changes in the same millisecond kept stale permissions in testing). Admins cannot change their own permissions.
 - `saveUser` from the frontend sends both `perms` and a matching `role`: the new backend uses `perms`; the older deployment only knew `role` and would have demoted anyone saved without it.
@@ -64,6 +64,14 @@ Browser (docs/*.js)  --fetch POST text/plain JSON-->  Apps Script doPost (Code.g
   - `tidy()` = `toEditable(fromEditable())`, used by the Tidy up button and on paste into an empty editor.
 - Editor textarea uses Geist Mono so chord above lyric alignment by character count matches what the user sees.
 - Transpose spelling (owner's rule): `#/b auto` always uses `AUTO = C C# D Eb E F F# G G# A Bb B` for chords and the key label. At shift 0 in auto mode the content and key are shown exactly as written. `Use #` / `Use b` force `SHARP` / `FLAT`. The PDF uses the same `prepareForOutput` result, so screen and print match.
+
+### Categories (Categories.gs)
+
+- Added 2026-11-09 to replace free text tags (owner's choice). Sheet `Categories` (`CategoryId`, `Name`, `CreatedBy`, `CreatedAt`); songs keep a JSON array of category ids in the last `Songs` column `Categories` (empty cell = none). `SCHEMA_VERSION` is `schema_v4`.
+- Actions: `listCategories` (any session), `saveCategory(token, { id?, name })` and `deleteCategory(token, id)` need `categories.manage`. Names: trimmed, 1 to 40 characters, unique ignoring case, at most 100. Lists are sorted with `localeCompare(..., 'th')` (Thai before Latin). Deleting a category removes its id from every song.
+- Assigning categories is part of `songs.edit`: `saveSong` / `saveSongs` accept `categories` (ids, cleaned against the sheet); when `saveSong` gets no `categories` field the existing value is kept, so older clients do not wipe it.
+- `bootData_` returns `categories`; the client caches them in `cs_cache`. UI: Categories page (nav, `categories.manage`), checkbox chips in the song editor, filter chips (`state.catFilter`) and category pills on the Songs list and song page; search matches category names.
+- Tags are no longer shown or searched, but the `Tags` column is kept and the editor sends the existing `tags` value back unchanged.
 
 ### Importing Word / PDF files (docs/importer.js)
 
